@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "_doc": "Danh sách ngang chức năng app ↔ web của hub (PLAN P5), sinh và kiểm bằng scripts/parity_routes.py. cover: e2e:<id> = ca Playwright có nhãn [id] trong tests/e2e/*.spec.ts; structural = WebView hiển thị chính trang/thao tác của hub (cùng /do/{name} + plan_action), không cần phần native; native:… = app có phần native riêng; manual:… = checklist tay.",
-  "source": "agent-hub@7e0f2b7",
+  "source": "agent-hub@925955c",
   "routes": {
     "GET /": {
       "cover": "e2e:pages"
@@ -56,6 +56,9 @@
     },
     "GET /favicon.ico": {
       "cover": "structural"
+    },
+    "GET /filehub/open": {
+      "cover": "native:khoá điều hướng — /filehub/open chuyển hướng sang web Không gian số (origin khác) → mở trình duyệt hệ thống"
     },
     "GET /files/raw": {
       "cover": "e2e:download"
@@ -133,6 +136,9 @@
       "cover": "e2e:office"
     },
     "GET /partials/backup": {
+      "cover": "structural"
+    },
+    "GET /partials/filehub": {
       "cover": "structural"
     },
     "GET /partials/health": {
@@ -387,6 +393,15 @@
       "cover": "e2e:confirm-page"
     },
     "feedback": {
+      "cover": "structural"
+    },
+    "filehub_pause": {
+      "cover": "structural"
+    },
+    "filehub_resume": {
+      "cover": "structural"
+    },
+    "filehub_resume_push": {
       "cover": "structural"
     },
     "gates_set": {
