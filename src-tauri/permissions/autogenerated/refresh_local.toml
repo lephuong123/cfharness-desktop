@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-refresh-local"
+description = "Enables the refresh_local command without any pre-configured scope."
+commands.allow = ["refresh_local"]
+
+[[permission]]
+identifier = "deny-refresh-local"
+description = "Denies the refresh_local command without any pre-configured scope."
+commands.deny = ["refresh_local"]

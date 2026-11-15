@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "shell",
+  "description": "Shell UI (rail, onboarding) bundled with the app. Only the `shell` webview — never a hub webview.",
+  "local": true,
+  "webviews": ["shell"],
+  "permissions": [
+    "core:event:default",
+    "allow-get-state",
+    "allow-select-hub",
+    "allow-retry-hub",
+    "allow-refresh-local",
+    "allow-create-default-hub",
+    "allow-find-in-page",
+    "allow-find-close"
+  ]
+}

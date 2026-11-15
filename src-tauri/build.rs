@@ -1,0 +1,14 @@
+fn main() {
+    // Declaring the app commands makes them permission-gated: only capabilities that list `allow-<cmd>`
+    // (the `shell` webview) can call them. Hub webviews have no capability at all.
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
+        "get_state",
+        "select_hub",
+        "retry_hub",
+        "refresh_local",
+        "create_default_hub",
+        "find_in_page",
+        "find_close",
+    ])))
+    .expect("failed to run tauri-build");
+}
