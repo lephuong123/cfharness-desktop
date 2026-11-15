@@ -1,5 +1,6 @@
 // Shell UI: hub rail + panels shown when no hub webview covers the content area, and the dialogs of P2
-// (import URL / directory, quick switcher, hub management, origin-change confirmation).
+// (import URL / directory, quick switcher, hub management, origin-change confirmation) and P3 (automatic install of
+// cfharness, settings).
 // All text is set via textContent (hub names come from disk, the hub CLI or a remote directory — never HTML).
 // While a dialog or popup menu is open the shell asks Rust to hide the hub webview (`set_overlay`), because the hub
 // webview is drawn above the shell.
@@ -24,6 +25,7 @@ interface Hub {
   initial: string;
   status: Status;
   badge: number | null;
+  estop: boolean;
   home: string | null;
   origin: string | null;
   hidden: boolean;
@@ -61,7 +63,42 @@ interface ShellState {
   read_only: boolean;
   find_open: boolean;
   version: string;
+  settings: Settings;
+  installing: boolean;
+  speech: boolean;
 }
+
+interface Settings {
+  live_webviews: number;
+  notify: boolean;
+  autostart: boolean;
+  badge_poll_s: number;
+}
+
+interface InstallStep {
+  id: string;
+  label: string;
+  command: string;
+}
+
+interface InstallPlan {
+  nonce: number;
+  tag: string;
+  repo: string;
+  uv: string | null;
+  git_ok: boolean;
+  claude: string | null;
+  target_dir: string;
+  steps: InstallStep[];
+  blocker: string | null;
+  os: string;
+}
+
+type InstallEvent =
+  | { kind: "step"; id: string; label: string }
+  | { kind: "log"; text: string }
+  | { kind: "done" }
+  | { kind: "error"; message: string };
 
 interface PreviewHub {
   id: string;
@@ -99,10 +136,8 @@ interface SyncSummary {
 // Same palette as `hubs::PALETTE`.
 const PALETTE = ["#d97757", "#5b8def", "#3fa47a", "#b763d1", "#e0a43a", "#4fb3bf", "#e05d7c", "#7a8699"];
 
-// Same source as the hub's own updater (`updater.REPO`).
-const HUB_REPO = "lephuong123/agent-hub";
-const INSTALL_CMD_MAC = `curl -LsSf https://astral.sh/uv/install.sh | sh\nuv tool install "cfharness @ git+https://github.com/${HUB_REPO}"`;
-const INSTALL_CMD_WIN = `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"\nuv tool install "cfharness @ git+https://github.com/${HUB_REPO}"`;
+// Guidance for the claude CLI (the app never installs or logs in to Claude for the user).
+const CLAUDE_DOCS = "https://docs.claude.com/en/docs/claude-code/setup";
 
 const IS_MAC = navigator.userAgent.includes("Mac");
 const MOD = IS_MAC ? "⌘" : "Ctrl+";
@@ -292,14 +327,14 @@ function renderRail(s: ShellState): void {
     const li = el("li");
     if (h.id === s.active) li.classList.add("active");
     const st = railStatus(h);
-    const extra = h.stale ? " — không còn trong directory" : "";
+    const extra = (h.stale ? " — không còn trong directory" : "") + (h.estop ? " — ESTOP đang bật" : "");
     const label = `${h.name} — ${st.label}${extra}${i < 9 ? ` (${MOD}${i + 1})` : ""}`;
     const btn = tileButton(h);
     btn.title = label;
     btn.setAttribute("aria-label", label);
     if (h.stale) btn.classList.add("stale");
     if (h.id === s.active) btn.setAttribute("aria-current", "page");
-    const dot = el("span", { className: `dot ${st.cls}` });
+    const dot = el("span", { className: `dot ${h.estop ? "estop" : st.cls}` });
     dot.setAttribute("aria-hidden", "true");
     const badge = el("span", { className: "badge" });
     badge.hidden = !h.badge;
@@ -366,22 +401,115 @@ function button(text: string, onClick: () => Promise<void> | void, primary = fal
   return b;
 }
 
-function onboarding(): HTMLElement {
-  const isWin = navigator.userAgent.includes("Windows");
-  return panel(
-    el("h1", { textContent: "Chào mừng đến với Cfharness Desktop" }),
-    el("p", { textContent: "Máy này chưa có cfharness — phần mềm chạy hub điều phối đội agent. App cần nó để mở hub local." }),
-    el(
-      "ol",
-      {},
-      el("li", { textContent: "Cài uv (trình quản lý Python của Astral) và cfharness bằng lệnh dưới đây trong Terminal (chỉ cài vào thư mục người dùng, không cần quyền quản trị):" }),
-      el("pre", { textContent: isWin ? INSTALL_CMD_WIN : INSTALL_CMD_MAC }),
-      el("li", { textContent: "Đăng nhập Claude CLI (claude) nếu chưa — đó là việc của bạn, app không làm thay." }),
-      el("li", { textContent: "Bấm “Kiểm tra lại”." }),
-    ),
-    el("p", { className: "note", textContent: "Chỉ dùng hub trên cloud? Bấm “Thêm hub cloud” — không cần cài cfharness." }),
-    el("div", { className: "actions" }, button("Kiểm tra lại", () => call("refresh_local"), true), button("Thêm hub cloud / Import URL…", () => importDialog())),
+// ------------------------------------------------------------------------------------------------ install (P3)
+
+let plan: InstallPlan | null = null;
+let planError: string | null = null;
+let planBusy = false;
+let installLog: string[] = [];
+let installStep: string | null = null;
+let installResult: { ok: boolean; message: string } | null = null;
+let logPre: HTMLPreElement | null = null;
+
+async function loadPlan(): Promise<void> {
+  planBusy = true;
+  planError = null;
+  installStep = null;
+  if (state) renderContent(state);
+  try {
+    plan = await invoke<InstallPlan>("install_plan");
+  } catch (e) {
+    plan = null;
+    planError = errText(e);
+  } finally {
+    planBusy = false;
+    if (state) renderContent(state);
+  }
+}
+
+async function runInstall(): Promise<void> {
+  if (!plan) return;
+  installLog = [];
+  installResult = null;
+  installStep = null;
+  try {
+    await invoke("install_run", { nonce: plan.nonce });
+  } catch (e) {
+    installResult = { ok: false, message: errText(e) };
+    plan = null;
+    if (state) renderContent(state);
+  }
+}
+
+function onInstallEvent(ev: InstallEvent): void {
+  if (ev.kind === "log") {
+    installLog.push(ev.text);
+    if (installLog.length > 2000) installLog.splice(0, installLog.length - 2000);
+    if (logPre) {
+      logPre.textContent = installLog.join("\n");
+      logPre.scrollTop = logPre.scrollHeight;
+    }
+    return;
+  }
+  if (ev.kind === "step") installStep = ev.label;
+  else if (ev.kind === "done") {
+    installResult = { ok: true, message: "Đã cài xong cfharness và mở hub mặc định." };
+    plan = null;
+  } else if (ev.kind === "error") {
+    installResult = { ok: false, message: ev.message };
+    plan = null;
+  }
+  if (state) renderContent(state);
+}
+
+function claudeNote(p: InstallPlan): HTMLElement {
+  if (p.claude) return el("p", { className: "note", textContent: `Claude CLI: ${p.claude}` });
+  return el(
+    "div",
+    { className: "warn-box" },
+    el("p", { textContent: "Chưa thấy Claude CLI (lệnh claude). Hub cần nó để chạy agent, nhưng cài và đăng nhập Claude là việc của bạn — app không làm thay." }),
+    el("p", { className: "mono small", textContent: `Hướng dẫn: ${CLAUDE_DOCS}` }),
+    el("p", { className: "small muted", textContent: "Có thể cài cfharness trước, cài Claude CLI sau." }),
   );
+}
+
+function onboarding(s: ShellState): HTMLElement {
+  const box = panel(el("h1", { textContent: "Chào mừng đến với Cfharness Desktop" }));
+  if (s.installing || installStep) {
+    box.append(el("p", { textContent: installResult ? "" : `Đang cài… ${installStep ?? ""}` }));
+    if (!installResult) box.append(el("div", { className: "spinner" }));
+  } else {
+    box.append(el("p", { textContent: "Máy này chưa có cfharness — phần mềm chạy hub điều phối đội agent. App có thể cài nó cho bạn (chỉ vào thư mục người dùng, không cần quyền quản trị)." }));
+  }
+  if (installResult) box.append(el("p", { className: installResult.ok ? "ok-msg" : "error-msg", textContent: installResult.message }));
+  if (!s.installing && !plan) {
+    if (planError) box.append(el("p", { className: "error-msg", textContent: planError }));
+    const b = button(planBusy ? "Đang kiểm tra…" : "Xem kế hoạch cài", () => loadPlan(), true);
+    b.disabled = planBusy;
+    box.append(el("div", { className: "actions" }, b, button("Kiểm tra lại", () => call("refresh_local")), button("Thêm hub cloud / Import URL…", () => importDialog())));
+  } else if (!s.installing && plan) {
+    const p = plan;
+    box.append(
+      el("h2", { textContent: `Kế hoạch cài cfharness ${p.tag}` }),
+      el("p", { className: "small muted", textContent: `Nguồn: github.com/${p.repo} (bản phát hành mới nhất) · lệnh cfharness sẽ nằm ở ${p.target_dir}` }),
+    );
+    const ol = el("ol", { className: "plan" });
+    for (const st of p.steps) ol.append(el("li", {}, el("span", { textContent: st.label }), el("pre", { textContent: st.command })));
+    box.append(ol);
+    box.append(claudeNote(p));
+    if (p.blocker) box.append(el("p", { className: "error-msg", textContent: p.blocker }));
+    const go = button("Cài", () => runInstall(), true);
+    go.disabled = !!p.blocker;
+    box.append(el("div", { className: "actions" }, go, button("Kiểm tra lại", () => loadPlan()), button("Huỷ", () => { plan = null; if (state) renderContent(state); })));
+  }
+  if (installLog.length || s.installing) {
+    if (!logPre) logPre = el("pre", { className: "install-log" });
+    logPre.textContent = installLog.join("\n");
+    box.append(logPre);
+    queueMicrotask(() => { if (logPre) logPre.scrollTop = logPre.scrollHeight; });
+  }
+  box.append(el("p", { className: "note", textContent: "Chỉ dùng hub trên cloud? Bấm “Thêm hub cloud” — không cần cài cfharness." }));
+  return box;
 }
 
 function noHubs(): HTMLElement {
@@ -425,10 +553,12 @@ function renderContent(s: ShellState): void {
   const c = $("content");
   let node: HTMLElement;
   const active = s.hubs.find((h) => h.id === s.active) ?? null;
-  if (!s.cfharness && (!active || active.kind === "local") && !s.hubs.some((h) => h.kind === "remote")) {
-    node = onboarding();
+  if (s.installing || (installStep && !installResult?.ok)) {
+    node = onboarding(s);
+  } else if (!s.cfharness && (!active || active.kind === "local") && !s.hubs.some((h) => h.kind === "remote")) {
+    node = onboarding(s);
   } else if (!s.cfharness && active?.kind === "local") {
-    node = onboarding();
+    node = onboarding(s);
   } else if (!active) {
     node = s.hubs.length === 0 ? noHubs() : panel(el("h1", { textContent: "Chọn một hub ở thanh bên trái" }), el("p", { textContent: `${MOD}K: chuyển nhanh tới hub.` }));
   } else if (active.status.state === "error") {
@@ -834,6 +964,62 @@ function switcherDialog(): void {
   document.getElementById("sw-q")?.focus();
 }
 
+function settingsDialog(): void {
+  const cur = state?.settings;
+  if (!cur) return;
+  let live = cur.live_webviews;
+  let poll = cur.badge_poll_s;
+  let notify = cur.notify;
+  let autostart = cur.autostart;
+  let err: string | null = null;
+  let busy = false;
+  openModal("settings", () => {
+    const body = el("div", { className: "stack" }, dialogHead("Cài đặt"));
+    const num = (id: string, label: string, value: number, min: number, max: number, hint: string, set: (n: number) => void) => {
+      const input = el("input", { id, type: "number", value: String(value), min: String(min), max: String(max), step: "1" });
+      input.addEventListener("input", () => set(Number(input.value)));
+      return el("label", { className: "field" }, el("span", { textContent: label }), input, el("span", { className: "small muted", textContent: hint }));
+    };
+    const check = (id: string, label: string, value: boolean, hint: string, set: (b: boolean) => void) => {
+      const input = el("input", { id, type: "checkbox", checked: value });
+      input.addEventListener("change", () => set(input.checked));
+      return el("label", { className: "field check" }, input, el("span", { textContent: label }), el("span", { className: "small muted", textContent: hint }));
+    };
+    body.append(
+      num("set-live", "Số hub giữ sống cùng lúc", live, 1, 20, "Hub lâu không dùng sẽ “ngủ” (đóng WebView, vẫn giữ phiên đăng nhập).", (n) => (live = n)),
+      num("set-poll", "Chu kỳ cập nhật badge (giây)", poll, 5, 300, "Trang của hub hỏi /app/badge theo chu kỳ này (áp dụng từ lần hỏi kế tiếp).", (n) => (poll = n)),
+      check("set-notify", "Thông báo hệ điều hành", notify, "Khi hub không ở tiền cảnh có yêu cầu duyệt / câu hỏi mới. Nội dung chỉ là chữ cố định + tên hub.", (b) => (notify = b)),
+      check("set-autostart", "Mở cùng hệ điều hành", autostart, "Khởi động thu nhỏ vào tray khi đăng nhập máy.", (b) => (autostart = b)),
+      el("p", {
+        className: "small muted",
+        textContent: state?.speech
+          ? "Giọng nói: app có nhận dạng giọng nói native cho nút micro của hub (lần đầu hệ điều hành sẽ hỏi quyền micro + nhận dạng giọng nói)."
+          : "Giọng nói: bản app này chưa có nhận dạng giọng nói native — nút micro của hub được ẩn.",
+      }),
+      el("p", { className: "small muted", textContent: `Phiên bản app: ${state?.version ?? ""}` }),
+    );
+    if (err) body.append(el("p", { className: "error-msg", textContent: err }));
+    const save = button(busy ? "Đang lưu…" : "Lưu", async () => {
+      busy = true;
+      err = null;
+      drawModal();
+      try {
+        await invoke("set_settings", { liveWebviews: Math.round(live), notify, badgePollS: Math.round(poll), autostart });
+        busy = false;
+        closeModal();
+        return;
+      } catch (e) {
+        err = errText(e);
+      }
+      busy = false;
+      drawModal();
+    }, true);
+    save.disabled = busy || !!state?.read_only;
+    body.append(el("div", { className: "actions" }, save, button("Huỷ", () => closeModal())));
+    return body;
+  });
+}
+
 let asking: string | null = null;
 
 function maybeAskOriginChange(): void {
@@ -898,6 +1084,7 @@ function setupAddMenu(): void {
   on("import", () => importDialog());
   on("refresh", () => void call("refresh_local"));
   on("manage", () => manageDialog());
+  on("settings", () => settingsDialog());
   on("sync", () => {
     for (const d of state?.directories ?? []) void call("sync_directory", { id: d.id });
   });
@@ -945,6 +1132,7 @@ function setupKeys(): void {
     if (e.payload === "switcher") switcherDialog();
     else if (e.payload === "import") importDialog();
     else if (e.payload === "manage") manageDialog();
+    else if (e.payload === "settings") settingsDialog();
   });
 }
 
@@ -952,6 +1140,7 @@ async function main(): Promise<void> {
   setupAddMenu();
   setupFind();
   setupKeys();
+  await listen<InstallEvent>("shell://install", (e) => onInstallEvent(e.payload));
   await listen<ShellState>("shell://state", (e) => render(e.payload));
   render(await invoke<ShellState>("get_state"));
 }
