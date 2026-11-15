@@ -703,7 +703,6 @@ mod tests {
         assert!(!info.started);
     }
 
-    #[cfg(unix)]
     #[test]
     fn legacy_cli_detection() {
         assert!(is_legacy_cli(Some(2), ""));
@@ -749,6 +748,7 @@ mod tests {
         assert_eq!(w.hub_id, legacy_hub_id(&home));
     }
 
+    #[cfg(unix)]
     #[test]
     fn ensure_web_runs_fake_cli() {
         use std::os::unix::fs::PermissionsExt;
