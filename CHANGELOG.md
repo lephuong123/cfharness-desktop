@@ -4,6 +4,8 @@ Mục mới nhất ở trên cùng. Quy trình phát hành: viết mục của p
 
 ## Chưa phát hành
 
+- Hub local chạy `cfharness` bản đã phát hành (≤ 0.2.10, chưa có `web --json --ensure`) giờ mở được: app nhận ra bản cũ, lấy link bằng `cfharness web --url`, web chưa chạy thì tự bật `cfharness web --no-link` (log ở `HUB_HOME/logs/web.log`). Trước đây app báo lỗi ngay khi mở.
+
 ### Sửa lỗi an toàn + tương thích
 - Trang hub không còn tự mở được micro/camera (trước đây WebView trên macOS cấp quyền im lặng, kể cả hub đang chạy nền): mọi yêu cầu
   quyền trình duyệt của trang hub bị từ chối; giọng nói vẫn chạy qua nhận dạng native của app.

@@ -350,18 +350,11 @@ pub fn parse_c1(stdout: &str) -> Result<WebInfo, WebError> {
     })
 }
 
-/// Run `cfharness web --json --ensure` for `home` and parse the answer. Blocking (call from a worker thread).
-///
-/// stdout is read line by line on a thread; once the CLI process exits we only wait a short grace period, so a
-/// detached web server that (wrongly) kept the pipe open cannot hang the app.
-pub fn ensure_web(bin: &Path, home: &Path, timeout: Duration) -> Result<WebInfo, WebError> {
+/// Build a `cfharness` command for `home` with a clean environment (no wrapping Claude Code session, no console window).
+fn hub_command(bin: &Path, home: &Path, args: &[&str]) -> Command {
     let user_home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
     let mut cmd = Command::new(bin);
-    cmd.args(["web", "--json", "--ensure"])
-        .env("CFHARNESS_HOME", home)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+    cmd.args(args).env("CFHARNESS_HOME", home).stdin(Stdio::null());
     if let Some(p) = child_path(&user_home) {
         cmd.env("PATH", p);
     }
@@ -375,6 +368,16 @@ pub fn ensure_web(bin: &Path, home: &Path, timeout: Duration) -> Result<WebInfo,
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
+    cmd
+}
+
+/// Run `cfharness <args>` and collect stdout. Blocking.
+///
+/// stdout is read line by line on a thread; once the CLI process exits we only wait a short grace period, so a
+/// detached web server that (wrongly) kept the pipe open cannot hang the app.
+fn run_capture(bin: &Path, home: &Path, args: &[&str], timeout: Duration) -> Result<(Option<i32>, String), WebError> {
+    let mut cmd = hub_command(bin, home, args);
+    cmd.stdout(Stdio::piped()).stderr(Stdio::null());
     let mut child = cmd.spawn().map_err(|e| WebError::Spawn(e.to_string()))?;
     let stdout = child.stdout.take().ok_or_else(|| WebError::Spawn("không có stdout".into()))?;
     let (tx, rx) = mpsc::channel::<String>();
@@ -416,15 +419,139 @@ pub fn ensure_web(bin: &Path, home: &Path, timeout: Duration) -> Result<WebInfo,
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
     }
-    let out = lines.join("\n");
+    Ok((status.code(), lines.join("\n")))
+}
+
+/// argparse exits with code 2 and prints nothing on stdout when it does not know `--json`/`--ensure`
+/// (cfharness released before the desktop contract, e.g. 0.2.10).
+pub fn is_legacy_cli(code: Option<i32>, stdout: &str) -> bool {
+    code == Some(2) && stdout.trim().is_empty()
+}
+
+/// Run `cfharness web --json --ensure` for `home` and parse the answer. Blocking (call from a worker thread).
+/// Older cfharness without C1 → [`legacy_ensure`].
+pub fn ensure_web(bin: &Path, home: &Path, timeout: Duration) -> Result<WebInfo, WebError> {
+    let (code, out) = run_capture(bin, home, &["web", "--json", "--ensure"], timeout)?;
+    if is_legacy_cli(code, &out) {
+        log::info!("cfharness chưa có `web --json` — dùng `web --url` (hub đời cũ)");
+        return legacy_ensure(bin, home, timeout);
+    }
     match parse_c1(&out) {
         Ok(info) => Ok(info),
         Err(e @ WebError::Hub { .. }) => Err(e),
-        Err(e) if !status.success() && out.trim().is_empty() => {
-            Err(WebError::Spawn(format!("cfharness thoát với mã {:?} ({e:?})", status.code())))
+        Err(e) if code != Some(0) && out.trim().is_empty() => {
+            Err(WebError::Spawn(format!("cfharness thoát với mã {code:?} ({e:?})")))
         }
         Err(e) => Err(e),
     }
+}
+
+/// `admin_overview.hub_id(home)` of the hub: sha256(realpath(HUB_HOME))[:16].
+pub fn legacy_hub_id(home: &Path) -> String {
+    use sha2::{Digest, Sha256};
+    let real = std::fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf());
+    let d = Sha256::digest(real.to_string_lossy().as_bytes());
+    d.iter().map(|b| format!("{b:02x}")).collect::<String>()[..16].to_string()
+}
+
+/// Parse the text of the legacy `cfharness web --url`: the FIRST `http://…/login?t=…` URL is the local one
+/// (a second line may hold the public tunnel URL).
+pub fn parse_legacy_url(stdout: &str, home: &Path) -> Result<WebInfo, WebError> {
+    let url_s = stdout
+        .split_whitespace()
+        .find(|w| w.starts_with("http://") && w.contains("/login?t="))
+        .ok_or_else(|| WebError::Protocol("không thấy link đăng nhập trong `cfharness web --url`".into()))?;
+    let login_url = url::Url::parse(url_s).map_err(|_| WebError::Protocol("link đăng nhập không hợp lệ".into()))?;
+    let origin = Origin::parse(&login_url.origin().ascii_serialization())
+        .ok_or_else(|| WebError::Protocol("origin không hợp lệ".into()))?;
+    if !origin.is_loopback() {
+        return Err(WebError::Protocol("origin của hub local phải là loopback".into()));
+    }
+    if login_url.path() != "/login" || !login_url.query_pairs().any(|(k, v)| k == "t" && !v.is_empty()) {
+        return Err(WebError::Protocol("login_url phải là <origin>/login?t=…".into()));
+    }
+    let name = home.file_name().map(|n| n.to_string_lossy().trim_start_matches('.').to_string()).unwrap_or_default();
+    Ok(WebInfo {
+        origin,
+        login_url,
+        hub_id: legacy_hub_id(home),
+        version: String::new(),
+        name: one_line(if name.is_empty() || name == "cfharness" { "Local" } else { &name }, 60),
+        started: false,
+    })
+}
+
+/// Port for a legacy web server we start ourselves: 8765 for the default home (same as `cfharness web`), otherwise
+/// a deterministic per-hub port 8770 + (hub_id mod 1000) — the same rule as C1 — skipping busy ports.
+fn legacy_port(home: &Path) -> u16 {
+    let default_home = dirs::home_dir().map(|h| h.join(".cfharness"));
+    let is_default = default_home.as_deref().map(|d| canon(d) == canon(home)).unwrap_or(false);
+    let base: u16 = if is_default {
+        8765
+    } else {
+        let id = legacy_hub_id(home);
+        8770 + (u64::from_str_radix(&id[..8], 16).unwrap_or(0) % 1000) as u16
+    };
+    (0..50u16)
+        .map(|i| base + i)
+        .filter(|p| *p != 8766)
+        .find(|p| std::net::TcpListener::bind(("127.0.0.1", *p)).is_ok())
+        .unwrap_or(base)
+}
+
+/// Hub without C1: `cfharness web --url` if a server runs, else start `cfharness web --no-link --port P` detached
+/// (log to HUB_HOME/logs/web.log) and poll `--url` until it answers.
+pub fn legacy_ensure(bin: &Path, home: &Path, timeout: Duration) -> Result<WebInfo, WebError> {
+    let (code, out) = run_capture(bin, home, &["web", "--url"], timeout)?;
+    if code == Some(0) {
+        return parse_legacy_url(&out, home);
+    }
+    let port = legacy_port(home).to_string();
+    let logs = home.join("logs");
+    let _ = std::fs::create_dir_all(&logs);
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(logs.join("web.log"))
+        .map_err(|e| WebError::Spawn(format!("không mở được logs/web.log: {e}")))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(logs.join("web.log"), std::fs::Permissions::from_mode(0o600));
+    }
+    let mut cmd = hub_command(bin, home, &["web", "--no-link", "--port", &port]);
+    let log2 = log.try_clone().map_err(|e| WebError::Spawn(e.to_string()))?;
+    cmd.stdout(Stdio::from(log)).stderr(Stdio::from(log2));
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0); // survive the app quitting / Ctrl-C of a dev run
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+    }
+    let mut child = cmd.spawn().map_err(|e| WebError::Spawn(e.to_string()))?;
+    std::thread::spawn(move || {
+        let _ = child.wait(); // reap when it eventually exits
+    });
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        std::thread::sleep(Duration::from_millis(500));
+        if let Ok((Some(0), out)) = run_capture(bin, home, &["web", "--url"], Duration::from_secs(15)) {
+            let mut info = parse_legacy_url(&out, home)?;
+            info.started = true;
+            return Ok(info);
+        }
+    }
+    Err(WebError::Hub {
+        code: "web_start_failed".into(),
+        message: format!("Không bật được giao diện web của hub (cổng {port}) — xem {}", logs.join("web.log").display()),
+    })
 }
 
 #[cfg(test)]
@@ -577,6 +704,51 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[test]
+    fn legacy_cli_detection() {
+        assert!(is_legacy_cli(Some(2), ""));
+        assert!(is_legacy_cli(Some(2), "  \n"));
+        assert!(!is_legacy_cli(Some(1), ""));
+        assert!(!is_legacy_cli(Some(2), "{\"ok\":false}"));
+    }
+
+    #[test]
+    fn legacy_url_parsing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join(".cfharness");
+        fs::create_dir_all(&home).unwrap();
+        let out = "Giao diện web đang chạy (pid 1). Link đăng nhập một lần (hết hạn sau 5 phút):\n  http://cfharness.localhost:8765/login?t=abc.1.sig\nQua Internet (tunnel):\n  https://an.example.com/login?t=x";
+        let w = parse_legacy_url(out, &home).unwrap();
+        assert_eq!(w.login_url.as_str(), "http://cfharness.localhost:8765/login?t=abc.1.sig");
+        assert_eq!(w.name, "Local");
+        assert_eq!(w.hub_id.len(), 16);
+        assert!(w.hub_id.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(!w.started);
+        assert!(parse_legacy_url("lỗi: chưa có server web nào chạy", &home).is_err());
+        assert!(parse_legacy_url("http://evil.example.com/login?t=a", &home).is_err());
+        assert!(parse_legacy_url("http://cfharness.localhost:8765/other?t=a", &home).is_err());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn ensure_web_falls_back_to_legacy_cli() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("hubx");
+        fs::create_dir_all(&home).unwrap();
+        let bin = tmp.path().join("cfharness");
+        fs::write(
+            &bin,
+            "#!/bin/sh\ncase \"$*\" in\n  'web --json --ensure') echo 'usage: cfharness' >&2; exit 2;;\n  'web --url') echo 'Link:'; echo '  http://cfharness.localhost:8790/login?t=n.1.s'; exit 0;;\nesac\nexit 9\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        let w = ensure_web(&bin, &home, Duration::from_secs(10)).unwrap();
+        assert_eq!(w.origin.as_string(), "http://cfharness.localhost:8790");
+        assert_eq!(w.name, "hubx");
+        assert_eq!(w.hub_id, legacy_hub_id(&home));
+    }
+
     #[test]
     fn ensure_web_runs_fake_cli() {
         use std::os::unix::fs::PermissionsExt;
