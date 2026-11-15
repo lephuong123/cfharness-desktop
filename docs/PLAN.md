@@ -238,7 +238,7 @@ cfharness-desktop/
 │   ├── rust (cargo test): parse/kiểm directory, registry, khoá điều hướng, payload IPC
 │   ├── e2e/ (WebDriver tauri-driver trên Windows; macOS: Playwright WebKit + checklist tay)
 │   └── fixtures/ hub giả = `python -m cfharness.web.demo` (FakeRuntime, không gọi claude)
-└── .github/workflows/{ci.yml, release.yml}   ma trận macos-14 (arm64 + x64) + windows-latest
+└── .github/workflows/{ci.yml, release.yml}   ma trận macos-15 (arm64 + x64) + windows-latest
 ```
 
 ## 8. Lộ trình
