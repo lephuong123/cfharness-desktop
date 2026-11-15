@@ -4,6 +4,22 @@ Mục mới nhất ở trên cùng. Quy trình phát hành: viết mục của p
 
 ## Chưa phát hành
 
+### Đóng gói, tự cập nhật, phát hành (P4)
+- Tự cập nhật app: kiểm tra mỗi ngày (tắt được) hoặc bấm **Kiểm tra cập nhật…**; nút ↑ trên thanh bên khi có bản mới; ghi chú phát
+  hành + nút **Cập nhật lên X.Y.Z** trong **Cài đặt → Cập nhật app**. Không bao giờ tự cài khi bạn chưa bấm.
+- Gói cập nhật ký **ed25519** — app từ chối gói sai chữ ký; nguồn duy nhất là GitHub Releases của repo app. Kênh **Ổn định** /
+  **Thử nghiệm (beta)**. Bản tự build không có khoá công khai thì tự cập nhật tắt (ghi rõ trong Cài đặt).
+- Bộ cài: macOS `.dmg` universal (Apple Silicon + Intel), ký ad-hoc; Windows NSIS `.exe` cài cho user hiện tại (tự tải WebView2),
+  kèm nhận dạng giọng nói whisper.cpp. Chưa ký bởi Apple/Microsoft — xem README (mở lần đầu, SmartScreen, macOS hỏi lại quyền micro
+  sau khi cập nhật).
+- README: cài, cập nhật, gỡ cài đặt; sinh khoá ký cập nhật (`tauri signer generate`) và thiết lập phát hành.
+
+### Kiểm ngang chức năng (P5)
+- `scripts/parity_routes.py`: liệt kê mọi route + thao tác `ACTIONS`/`OFFICE_ACTIONS` của web hub và so với `tests/e2e/parity.json`
+  — tính năng web mới chưa được xếp loại kiểm thử → CI đỏ.
+- E2E Playwright (WebKit, đại diện WKWebView) trên hub demo: đăng nhập link một lần, thoát, `/.well-known`, `/app/badge`, directory,
+  mọi trang chính, SSE, văn phòng 3D, xác nhận + duyệt 2 bước, tải tệp. E2E app thật qua `tauri-driver` trên Windows CI.
+
 ### Native: badge, thông báo, tray, deep link, giọng nói, tự cài cfharness (P3)
 - Badge trên thanh bên + tray: số yêu cầu duyệt + câu hỏi đang chờ bạn của từng hub (đọc `/app/badge` của hub, chu kỳ chỉnh được);
   chấm đỏ khi hub bật ESTOP.

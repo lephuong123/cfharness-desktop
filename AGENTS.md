@@ -8,7 +8,8 @@
   `agent-hub/docs/dev-notes/desktop-app.md`.
 - Tên: productName "Cfharness Desktop", identifier `io.cfharness.desktop`, binary `cfharness-desktop`. macOS 14+, Windows 10 21H2+.
 - Mốc hiện tại: P1 (vỏ + hub local) + P2 (hub cloud, import directory, quản lý/chuyển hub) + P3 (cầu nối trang hub, badge,
-  thông báo, tray, deep link, giọng nói, tự cài cfharness, cài đặt/tự khởi động) xong. Tiếp: P4 đóng gói + updater ed25519.
+  thông báo, tray, deep link, giọng nói, tự cài cfharness, cài đặt/tự khởi động) + P4 (đóng gói, updater ed25519, CI/phát hành)
+  + P5 (parity route/ACTIONS + e2e) xong. Còn: chạy thật trên Windows, bản phát hành đầu tiên (cần remote + khoá updater).
 - Không sửa repo `agent-hub` từ đây (thay đổi phía hub = PR riêng bên đó).
 
 ## Cấu trúc
@@ -31,12 +32,17 @@
 | `src-tauri/src/tray.rs` | Tray: danh sách hub (+ số chờ), hiện/ẩn, thoát; dựng lại menu chỉ khi chữ ký đổi (`refresh`, gọi từ `emit_state`) |
 | `src-tauri/src/deeplink.rs` | `parse` THUẦN `cfharness://hub/<id>/<path>` (từ chối `//`, `\`, `..`, `#`, `/login`, userinfo, cổng), `resolve` (id registry hoặc `hub_id`) |
 | `src-tauri/src/speech/` | `mod.rs` một phiên micro thuộc một hub, sự kiện → `__cfhNativeDispatch(<JSON>)`; dừng khi hub không còn tiền cảnh. `macos.rs` + `native/speech_mac.m` (ObjC, cc, SFSpeechRecognizer, kiểm khoá Info.plist trước khi xin quyền). `whisper.rs` sau feature `whisper` (cpal + whisper-rs, VAD năng lượng, mô hình pin SHA-256, tải sau khi người bấm "Tải") |
+| `src-tauri/src/updater.rs` | Tự cập nhật (P4): `setup_from_config` (placeholder = TẮT, không liên lạc gì), endpoint CHỈ `https://github.com/<owner>/<repo>/releases/…` (`repo_of`), kênh beta suy ra từ cùng repo (`endpoint_for`), `valid_pubkey` (minisign), `clean_notes`; `check` không bao giờ tải, `install` chỉ khi shell gọi `update_install` đúng phiên bản vừa tìm thấy; kiểm tra nền 24 h |
 | `src-tauri/src/installer.rs` | Tự cài: `plan` (tag mới nhất `HUB_REPO` = `updater.REPO` của hub, uv/git/claude, bước + lệnh hiển thị, nonce) → `run` (uv Astral nếu thiếu, `uv tool install --force cfharness@tag`, doctor, mở hub mặc định), log `shell://install`; không sudo, chặn root |
 | `src-tauri/capabilities/shell.json` | Capability TĨNH duy nhất, chỉ cho webview `shell` (capability của trang hub thêm lúc chạy trong `bridge.rs`) |
 | `src-tauri/native/speech_mac.m`, `Entitlements.plist` | Cầu ObjC giọng nói macOS; entitlement micro (cho hardened runtime) |
 | `src-tauri/Info.plist` | Ngoại lệ ATS chỉ cho `localhost` + subdomain (hub local là http loopback) |
 | `inject/hub.js` | Script khởi tạo của WebView hub: chỉ khung trên cùng + đúng origin (app nhúng), hỏi `/app/badge`, `window.cfhNative` (speech C4, clipboard, download) — xem `inject/README.md` |
 | `scripts/dev-demo.sh` | Chạy app với hub demo của agent-hub (FakeRuntime), tách khỏi dữ liệu thật |
+| `scripts/parity_routes.py` | P5: đọc TĨNH (`ast`) `agent-hub/src/cfharness/web/*.py` → route/`ACTIONS`/`OFFICE_ACTIONS`, so với `tests/e2e/parity.json` (thiếu/TODO/nhãn e2e không tồn tại → mã 1). Đường dẫn route không tĩnh → script báo lỗi (sửa script, đừng bỏ qua) |
+| `scripts/release_tools.py` | Phát hành: `check-version`, `notes` (mục CHANGELOG), `config` (pubkey + endpoint repo + `createUpdaterArtifacts`), `latest-json` |
+| `tests/e2e/` | Playwright WebKit trên `web.demo` (`global-setup.ts` khởi động hub, link đăng nhập qua C1); nhãn `[id]` trong tên ca = `cover: "e2e:<id>"`. `tauri-driver/smoke.mjs` = app thật, chỉ Windows CI |
+| `.github/workflows/` | `ci.yml` (macOS arm64/x86_64 + Windows: test, clippy, tauri build không ký, tauri-driver; job parity-e2e khi có `AGENT_HUB_REPO`), `release.yml` (tag → dmg universal + NSIS, ký updater, Release = mục CHANGELOG, `latest.json` + release cuộn `beta`; ký Apple/Authenticode tắt bằng biến) |
 
 ## Lệnh
 ```bash
@@ -48,7 +54,12 @@ cd src-tauri && cargo clippy --all-targets -- -D warnings
 cd src-tauri && cargo check --target x86_64-pc-windows-msvc   # cần llvm-rc (giả được, xem README)
 cd src-tauri && cargo clippy --features whisper --all-targets  # giọng nói Windows; cần cmake (có thể dùng cmake từ pip trong venv tạm)
 npm run tauri build -- --debug --bundles app                  # .app thử trên macOS
+CI=true npm run tauri build -- --bundles dmg                  # .dmg (CI=true: bỏ AppleScript Finder, hỏng khi thiếu quyền Automation)
+npm run parity                                                # route/ACTIONS mới của hub chưa có trong tests/e2e/parity.json → mã 1
+npm run e2e                                                   # Playwright WebKit trên web.demo (cần `npx playwright install webkit`)
+python3 -m unittest scripts/test_parity_routes.py scripts/test_release_tools.py
 ```
+Hub thêm route/ACTION mới → chạy `python3 scripts/parity_routes.py --write`, điền `cover` (ưu tiên thêm ca e2e có nhãn `[id]`).
 Thử với hub thật mà không đụng dữ liệu thật: `scripts/dev-demo.sh` (biến `CFHARNESS_DESKTOP_DATA_DIR|HOMES|CFHARNESS` chỉ cho dev).
 
 ## Bất biến bảo mật (PLAN §5) — không được phá
@@ -81,6 +92,9 @@ Thử với hub thật mà không đụng dữ liệu thật: `scripts/dev-demo.
 7. Thư mục dữ liệu app (`io.cfharness.desktop`) được hub chặn với agent (C6/H5) — đừng đổi identifier.
 8. Không `--dangerously-*`, không mở cổng mạng nào từ app (app chỉ là client). Không chạy gì bằng sudo/admin.
 9. Ngoại lệ ATS chỉ cho `localhost` và subdomain; hub cloud bắt buộc https (kiểm ở `open_remote`).
+14. Tự cập nhật: KHÔNG commit khoá riêng updater (chỉ secret CI `TAURI_SIGNING_PRIVATE_KEY`); `tauri.conf.json` giữ placeholder
+    (test `repo_config_checked_against_placeholder`), `createUpdaterArtifacts` chỉ bật lúc phát hành qua `--config`. Endpoint chỉ là
+    GitHub Releases của repo app (`updater::repo_of`). Không cài khi người chưa bấm; lệnh `update_*` chỉ cấp cho `shell`.
 
 ## Quy ước
 - Chữ cho người dùng (UI, thông báo, lỗi, README, CHANGELOG, AGENTS): **tiếng Việt**. Định danh, comment code: tiếng Anh.
