@@ -4,13 +4,31 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   build:
+    name: build (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, windows-latest]
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+            test: true
+          # Intel mac: cross-compiled on the arm64 runner (build + clippy only; tests run natively above).
+          - os: macos-14
+            target: x86_64-apple-darwin
+            bundles: app
+            test: false
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+            test: true
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -19,20 +37,88 @@ jobs:
           node-version: 22
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          key: ${{ matrix.target }}
       - run: npm ci
       - run: npm run build
+      - name: Test script Python (parity, phát hành)
+        if: runner.os == 'macOS' && matrix.test
+        run: python3 -m unittest scripts/test_parity_routes.py scripts/test_release_tools.py
       - name: cargo test
+        if: matrix.test
         working-directory: src-tauri
-        run: cargo test
+        run: cargo test --target ${{ matrix.target }}
       - name: cargo clippy
         working-directory: src-tauri
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --target ${{ matrix.target }} --all-targets -- -D warnings
       - name: cargo clippy --features whisper (giọng nói Windows, cần cmake + MSVC có sẵn trên runner)
         if: runner.os == 'Windows'
         working-directory: src-tauri
-        run: cargo clippy --features whisper --all-targets -- -D warnings
-      - name: Debug bundle (không ký OS)
-        run: npm run tauri build -- --debug --no-bundle
+        run: cargo clippy --target ${{ matrix.target }} --features whisper --all-targets -- -D warnings
+      # Unsigned (macOS: ad-hoc via signingIdentity "-"); no updater artifacts (no private key in CI builds).
+      - name: tauri build (không ký OS)
+        run: npm run tauri build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - name: Cỡ gói
+        shell: bash
+        run: |
+          B=src-tauri/target/${{ matrix.target }}/release/bundle
+          find "$B" -maxdepth 2 \( -name '*.dmg' -o -name '*.exe' -o -name '*.app' \) -print0 | xargs -0 du -sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.target }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+          if-no-files-found: ignore
+          retention-days: 7
+      # E2E on the REAL app: tauri-driver exists only for Windows/Linux (no WebDriver for WKWebView on macOS).
+      - name: E2E app thật (tauri-driver + msedgedriver)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cargo install tauri-driver --locked
+          cargo install --git https://github.com/chippers/msedgedriver-tool --locked
+          msedgedriver-tool.exe
+          export PATH="$PWD:$PATH"
+          node tests/e2e/tauri-driver/smoke.mjs "src-tauri/target/${{ matrix.target }}/release/cfharness-desktop.exe"
+
+  # Parity checklist (route/ACTIONS/OFFICE_ACTIONS of the hub web) + Playwright WebKit e2e on the hub demo (FakeRuntime).
+  # Needs the agent-hub source: set repository variable AGENT_HUB_REPO (owner/name) and, if private, secret AGENT_HUB_TOKEN.
+  parity-e2e:
+    if: vars.AGENT_HUB_REPO != ''
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.AGENT_HUB_REPO }}
+          ref: ${{ vars.AGENT_HUB_REF || 'main' }}
+          token: ${{ secrets.AGENT_HUB_TOKEN || github.token }}
+          path: agent-hub
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Danh sách ngang chức năng (route mới / ACTION mới chưa có trong parity.json → đỏ)
+        run: python3 scripts/parity_routes.py --hub agent-hub
+      - run: uv sync --project agent-hub
+      - run: npm ci
+      - run: npx playwright install webkit
+      - name: E2E Playwright WebKit trên web.demo
+        env:
+          AGENT_HUB: ${{ github.workspace }}/agent-hub
+        run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7

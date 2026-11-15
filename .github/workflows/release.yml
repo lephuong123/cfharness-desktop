@@ -1,0 +1,167 @@
+name: release
+
+# Tag vX.Y.Z (AGENTS.md "Phát hành": CHANGELOG trước → nâng version → tag). Builds:
+#   macOS: .dmg universal (arm64 + x86_64), ad-hoc signed; updater bundle .app.tar.gz + .sig
+#   Windows: NSIS .exe (currentUser), unsigned; the .exe + .sig is also the updater bundle
+# Updater artifacts are signed with ed25519 (secret TAURI_SIGNING_PRIVATE_KEY [+ _PASSWORD]); the public key is the repository
+# variable TAURI_UPDATER_PUBKEY (injected into tauri.conf.json at build time). GitHub Release body = the CHANGELOG section.
+#
+# OS code signing is OFF until certificates exist (PLAN §5.7). To enable later, set repository variables:
+#   APPLE_SIGN=true      + secrets APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY
+#   APPLE_NOTARIZE=true  + secrets APPLE_ID, APPLE_PASSWORD (app-specific), APPLE_TEAM_ID   (requires APPLE_SIGN)
+#   WINDOWS_SIGN=true    + secrets WINDOWS_CERTIFICATE (base64 .pfx), WINDOWS_CERTIFICATE_PASSWORD
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          case "$V" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT";; *) echo "prerelease=false" >> "$GITHUB_OUTPUT";; esac
+      - name: Tag khớp version trong mã
+        run: python3 scripts/release_tools.py check-version "${{ steps.v.outputs.version }}"
+      - name: Release note (mục CHANGELOG của phiên bản — thiếu thì dừng)
+        run: python3 scripts/release_tools.py notes "${{ steps.v.outputs.version }}" --out notes.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notes
+          path: notes.md
+
+  build:
+    needs: notes
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: macos-14
+            target: universal-apple-darwin
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            bundles: app,dmg
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            rust_targets: x86_64-pc-windows-msvc
+            bundles: nsis
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: release-${{ matrix.target }}
+      - run: npm ci
+      - name: Cấu hình phát hành (khoá công khai updater + endpoint của repo này)
+        shell: bash
+        env:
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+        run: python3 scripts/release_tools.py config --out src-tauri/release.conf.json --repo "$GITHUB_REPOSITORY"
+
+      # ---- Windows Authenticode (tắt tới khi có chứng chỉ)
+      - name: Nhập chứng chỉ Authenticode
+        if: runner.os == 'Windows' && vars.WINDOWS_SIGN == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "cert.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $pw = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
+          Remove-Item $pfx
+          python3 scripts/release_tools.py config --out src-tauri/release.conf.json --repo "$env:GITHUB_REPOSITORY" --pubkey "${{ vars.TAURI_UPDATER_PUBKEY }}" --windows-cert $cert.Thumbprint
+
+      # ---- build: ad-hoc (mặc định) hoặc Developer ID + notarize (khi bật)
+      - name: tauri build (ad-hoc / không ký OS)
+        if: runner.os == 'Windows' || vars.APPLE_SIGN != 'true'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config src-tauri/release.conf.json
+      - name: tauri build (Developer ID${{ vars.APPLE_NOTARIZE == 'true' && ' + notarize' || '' }})
+        if: runner.os == 'macOS' && vars.APPLE_SIGN == 'true'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          NOTARIZE: ${{ vars.APPLE_NOTARIZE }}
+          N_APPLE_ID: ${{ secrets.APPLE_ID }}
+          N_APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          N_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Tauri notarizes when APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID are present — export them only when enabled.
+          if [ "$NOTARIZE" = "true" ]; then
+            export APPLE_ID="$N_APPLE_ID" APPLE_PASSWORD="$N_APPLE_PASSWORD" APPLE_TEAM_ID="$N_APPLE_TEAM_ID"
+          fi
+          npm run tauri build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config src-tauri/release.conf.json
+
+      - name: Gom tệp phát hành
+        shell: bash
+        run: |
+          B="src-tauri/target/${{ matrix.target }}/release/bundle"
+          mkdir -p out
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            cp "$B"/dmg/*.dmg out/
+            cp "$B"/macos/*.app.tar.gz "$B"/macos/*.app.tar.gz.sig out/
+          else
+            cp "$B"/nsis/*-setup.exe "$B"/nsis/*-setup.exe.sig out/
+          fi
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: out/*
+
+  publish:
+    needs: [notes, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dl
+      - name: latest.json + đổi tên tệp (không dấu cách)
+        run: |
+          mkdir rel
+          cp dl/release-*/* rel/
+          python3 scripts/release_tools.py latest-json --dir rel --version "${{ needs.notes.outputs.version }}" \
+            --repo "$GITHUB_REPOSITORY" --notes-file dl/notes/notes.md --out latest.json
+          cat latest.json
+      - name: GitHub Release (thân = mục CHANGELOG)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.notes.outputs.version }}
+          PRERELEASE: ${{ needs.notes.outputs.prerelease }}
+        run: |
+          flags=""
+          [ "$PRERELEASE" = "true" ] && flags="--prerelease"
+          gh release create "v$VERSION" --title "Cfharness Desktop v$VERSION" --notes-file dl/notes/notes.md $flags \
+            rel/*.dmg rel/*.app.tar.gz rel/*.app.tar.gz.sig rel/*-setup.exe rel/*-setup.exe.sig latest.json
+          # Kênh beta = release cuộn tên "beta" (chỉ giữ latest.json). Bản ổn định cũng vào kênh beta.
+          gh release view beta >/dev/null 2>&1 || gh release create beta --prerelease --title "Kênh beta (tự cập nhật)" \
+            --notes "Release cuộn cho kênh beta của updater — chỉ chứa latest.json, không tải từ đây."
+          gh release upload beta latest.json --clobber
