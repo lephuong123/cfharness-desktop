@@ -2,12 +2,15 @@
 //!
 //! The hub page reports its C3 counts through `badge_update` (bridge.rs). Here we keep the last counts per hub (rail
 //! badge, tray), and when approvals/questions INCREASE while the hub is not in the foreground we show an OS
-//! notification with FIXED text plus the hub name the user sees in the app — never text coming from the hub/agent.
+//! notification with FIXED text plus a hub label chosen locally (`notify_name`): the name the person set in the app,
+//! or the origin host for directory hubs still showing the directory-supplied name — never text coming from the
+//! hub/agent/directory.
 //! Clicking the notification switches to the hub and opens `/approvals` (or `/inbox` for questions).
 
 use crate::bridge::Badge;
 use crate::core::Core;
 use crate::directory::clean_line;
+use crate::hubs::Hub;
 use crate::webviews;
 use tauri::{AppHandle, Manager};
 
@@ -50,6 +53,24 @@ pub fn message(hub_name: &str, kind: Kind, n: u32) -> String {
     }
 }
 
+/// Label of a hub in an OS notification (PLAN §5.4). A directory hub whose name still follows the directory's
+/// `name` (the remote admin's display_name, never renamed by the person) is labelled by its origin host instead.
+pub fn notify_name(h: &Hub) -> String {
+    let from_directory = h.directory.is_some() && h.dir_name.as_deref() == Some(h.name.as_str());
+    if from_directory {
+        if let Some(host) = h.origin.as_deref().and_then(|o| url::Url::parse(o).ok()).and_then(|u| {
+            u.host_str().map(|host| match u.port() {
+                Some(p) => format!("{host}:{p}"),
+                None => host.to_string(),
+            })
+        }) {
+            return host;
+        }
+        return h.id.clone();
+    }
+    h.name.clone()
+}
+
 /// Rail badge number: what needs the human (approvals + questions).
 pub fn rail_count(b: &Badge) -> u32 {
     b.approvals.saturating_add(b.questions)
@@ -62,7 +83,7 @@ pub fn on_badge(app: &AppHandle, id: &str, b: Badge) {
         let core = app.state::<Core>();
         let mut g = core.lock();
         let prev = g.badges.insert(id.to_string(), b.clone());
-        let name = g.reg.get(id).map(|h| h.name.clone()).unwrap_or_default();
+        let name = g.reg.get(id).map(notify_name).unwrap_or_default();
         (prev, name, g.reg.settings.notify, g.reg.active.clone())
     };
     if prev.as_ref() != Some(&b) {
@@ -174,5 +195,20 @@ mod tests {
         assert_eq!(Kind::Approvals.path(), "/approvals");
         assert_eq!(Kind::Questions.path(), "/inbox");
         assert_eq!(rail_count(&b(2, 3)), 5);
+    }
+
+    #[test]
+    fn directory_names_never_reach_notifications() {
+        let mut h = Hub::new_remote("d1-abc", "Hub của An", "https://hub.example.com:8443");
+        h.directory = Some("d1".into());
+        h.dir_name = Some("Hub của An".into());
+        assert_eq!(notify_name(&h), "hub.example.com:8443", "name still follows the directory");
+        h.name = "Máy An".into();
+        assert_eq!(notify_name(&h), "Máy An", "renamed by the person");
+        let mut m = Hub::new_remote("r1", "Cloud", "https://cloud.example.com");
+        assert_eq!(notify_name(&m), "Cloud", "manually added hub: name typed by the person");
+        m.directory = Some("d1".into());
+        m.dir_name = Some("Cloud".into());
+        assert_eq!(notify_name(&m), "cloud.example.com");
     }
 }
