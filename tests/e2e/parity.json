@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "_doc": "Danh sách ngang chức năng app ↔ web của hub (PLAN P5), sinh và kiểm bằng scripts/parity_routes.py. cover: e2e:<id> = ca Playwright có nhãn [id] trong tests/e2e/*.spec.ts; structural = WebView hiển thị chính trang/thao tác của hub (cùng /do/{name} + plan_action), không cần phần native; native:… = app có phần native riêng; manual:… = checklist tay.",
-  "source": "agent-hub@925955c",
+  "source": "agent-hub@164b4d2",
   "routes": {
     "GET /": {
       "cover": "e2e:pages"
@@ -65,6 +65,15 @@
     },
     "GET /files/view": {
       "cover": "e2e:download"
+    },
+    "GET /hub-transfer": {
+      "cover": "structural"
+    },
+    "GET /hub-transfer/download/{token}": {
+      "cover": "native:tải gói hub qua download handler → hộp thoại Lưu của app"
+    },
+    "GET /hub-transfer/import/{id}": {
+      "cover": "structural"
     },
     "GET /inbox": {
       "cover": "e2e:pages"
@@ -142,6 +151,12 @@
       "cover": "structural"
     },
     "GET /partials/health": {
+      "cover": "structural"
+    },
+    "GET /partials/hub-transfer": {
+      "cover": "structural"
+    },
+    "GET /partials/hub-transfer/doctor": {
       "cover": "structural"
     },
     "GET /partials/manager": {
@@ -266,6 +281,18 @@
     },
     "POST /files/open": {
       "cover": "structural"
+    },
+    "POST /hub-transfer/download": {
+      "cover": "structural"
+    },
+    "POST /hub-transfer/import/{id}": {
+      "cover": "structural"
+    },
+    "POST /hub-transfer/import/{id}/discard": {
+      "cover": "structural"
+    },
+    "POST /hub-transfer/upload": {
+      "cover": "manual:chọn tệp gói hub để tải lên (hộp chọn tệp của WebView, macOS + Windows)"
     },
     "POST /login": {
       "cover": "manual:đăng nhập bằng mã TOTP trên hub cloud (form /login của hub)"
@@ -420,6 +447,15 @@
       "cover": "structural"
     },
     "golden_suggestion_reject": {
+      "cover": "structural"
+    },
+    "hub_export": {
+      "cover": "structural"
+    },
+    "hub_import": {
+      "cover": "structural"
+    },
+    "hub_unfreeze": {
       "cover": "structural"
     },
     "learn_rollback": {

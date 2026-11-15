@@ -4,6 +4,12 @@ Mục mới nhất ở trên cùng. Quy trình phát hành: viết mục của p
 
 ## Chưa phát hành
 
+## v0.1.0 — 2026-11-15
+
+Bản phát hành đầu tiên của **Cfharness Desktop** — app macOS (14+) và Windows (10 21H2+/11) hiển thị nguyên giao diện web của từng hub
+cfharness, quản lý nhiều hub (local + cloud) trong một cửa sổ. Chưa ký bởi Apple/Microsoft (xem README: mở lần đầu, SmartScreen).
+
+### Sửa trước khi phát hành
 - macOS không trỏ `cfharness.localhost` về máy (gặp trên macOS 15): app kiểm tra trước khi mở hub local và, thay vì trang lỗi "không tìm thấy máy chủ", hiện hướng dẫn với nút **Sửa giúp tôi…** (xác nhận các dòng sẽ thêm, macOS hỏi mật khẩu quản trị — việc duy nhất app cần quyền này) để thêm `cfharness.localhost` vào `/etc/hosts`, kèm lệnh tự làm và nút **Thử lại**.
 - Hub local chạy `cfharness` bản đã phát hành (≤ 0.2.10, chưa có `web --json --ensure`) giờ mở được: app nhận ra bản cũ, lấy link bằng `cfharness web --url`, web chưa chạy thì tự bật `cfharness web --no-link` (log ở `HUB_HOME/logs/web.log`). Trước đây app báo lỗi ngay khi mở.
 
@@ -80,5 +86,6 @@ Mục mới nhất ở trên cùng. Quy trình phát hành: viết mục của p
 - Badge/thông báo cần hub có `/app/badge` (C3); giọng nói cần `voice.js` có cầu nối `window.cfhNative` (C4) — cùng PR phía agent-hub
   với C1. Hub cũ: app vẫn dùng được, chỉ không có badge/giọng nói.
 - macOS: lần đầu dùng micro trong app, hệ điều hành hỏi quyền Micro + Nhận dạng giọng nói.
-- Cần hub cfharness có `cfharness web --json --ensure` (hợp đồng C1, phía agent-hub). Hub cũ hơn → app báo lỗi "dữ liệu không
-  hợp lệ … hãy cập nhật".
+- Hub local chạy cfharness ≤ 0.2.10 (chưa có `cfharness web --json --ensure`, hợp đồng C1) vẫn mở được qua `cfharness web --url`;
+  cập nhật hub lên bản có PR desktop (agent-hub #110) để có badge, giọng nói và directory.
+- Bản cài chưa ký: macOS mở lần đầu bằng chuột phải → Mở; Windows bấm "More info → Run anyway" ở SmartScreen.
