@@ -12,6 +12,12 @@ GitHub Release với thân = đúng mục CHANGELOG của phiên bản đó.
 
 from __future__ import annotations
 
+import sys as _sys
+for _st in (_sys.stdout, _sys.stderr):
+    try:
+        _st.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
 import argparse
 import base64
 import json
