@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <!-- Voice bridge (C4): native SFSpeechRecognizer for the hub's voice.js. Without these keys macOS aborts the app on the
+       permission request; speech_mac.m checks they are present before asking. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Cfharness Desktop dùng micro khi bạn bấm nút micro / hội thoại giọng nói trong trang Điều phối của hub.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Cfharness Desktop chuyển giọng nói của bạn thành chữ (tiếng Việt) để gửi cho điều phối viên của hub. Khi máy hỗ trợ, nhận dạng chạy ngay trên máy.</string>
   <!-- Local hubs are served over plain http on loopback (http://cfharness.localhost:<port>). ATS blocks that inside
        WKWebView in the bundled app (NSAllowsLocalNetworking does not cover *.localhost — verified), so allow insecure
        loads for localhost and its subdomains ONLY. Remote hubs must be https (enforced by the app as well). -->

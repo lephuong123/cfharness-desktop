@@ -8,7 +8,9 @@
 //! - User-Agent suffix ` CfharnessDesktop/<ver>` (C7);
 //! - local hubs log in through the one-time link from C1 and re-login when they land on `/login`.
 //!
-//! Hub webviews get NO IPC capability (see `capabilities/shell.json`, which targets the `shell` webview only).
+//! Hub webviews get NO shell command (see `capabilities/shell.json`, which targets the `shell` webview only). Each hub
+//! webview gets the bridge init script (`inject/hub.js`) and a runtime capability for the six bridge commands,
+//! limited to that hub's origin (`bridge::grant`, P3).
 
 use crate::core::{Core, HubStatus};
 use crate::hubs::{self, HubKind};
@@ -56,6 +58,39 @@ pub fn emit_state(app: &AppHandle) {
     let core = app.state::<Core>();
     let state = core.lock().shell_state();
     let _ = app.emit_to(EventTarget::webview(SHELL_LABEL), "shell://state", state);
+    let a = app.clone();
+    tauri::async_runtime::spawn(async move { crate::tray::refresh(&a) });
+}
+
+/// Show, unminimize and focus the main window (tray, notification click, deep link, second instance).
+pub fn show_main(app: &AppHandle) {
+    if let Some(w) = app.get_window(MAIN_WINDOW) {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+/// Switch to hub `id` and open `path` (relative, already validated) in it.
+pub async fn open_path(app: AppHandle, id: String, path: String) -> Result<(), String> {
+    if !path.starts_with('/') || path.starts_with("//") {
+        return Err("Đường dẫn không hợp lệ".into());
+    }
+    show_main(&app);
+    let live = app.get_webview(&label_of(&id)).is_some();
+    if !live {
+        let core = app.state::<Core>();
+        core.lock().pending_path.insert(id.clone(), path.clone());
+    }
+    select(app.clone(), id.clone()).await?;
+    if live {
+        if let (Some(o), Some(wv)) = (current_origin(&app, &id), app.get_webview(&label_of(&id))) {
+            if let Some(u) = o.join(&path) {
+                let _ = wv.navigate(u);
+            }
+        }
+    }
+    Ok(())
 }
 
 fn set_status(app: &AppHandle, id: &str, st: HubStatus) {
@@ -90,6 +125,12 @@ pub fn layout(app: &AppHandle) {
             .filter(|a| matches!(g.status_of(a), HubStatus::Online | HubStatus::Login | HubStatus::Starting));
         (active_ok, g.find_open, g.lru.clone())
     };
+    {
+        // The microphone belongs to the hub on screen only.
+        let core = app.state::<Core>();
+        let act = core.lock().reg.active.clone();
+        crate::speech::stop_unless_active(act.as_deref());
+    }
     if let Some(shell) = app.get_webview(SHELL_LABEL) {
         let _ = shell
             .set_bounds(Rect { position: LogicalPosition::new(0.0, 0.0).into(), size: LogicalSize::new(w, h).into() });
@@ -150,7 +191,8 @@ pub async fn open(app: AppHandle, id: String) -> Result<(), String> {
             return Ok(()); // already starting
         }
         g.status.insert(id.clone(), HubStatus::Starting);
-        (h.kind, h.home.clone(), h.origin.clone(), h.last_url.clone(), g.bin.clone())
+        let start = g.pending_path.remove(&id).or_else(|| h.last_url.clone());
+        (h.kind, h.home.clone(), h.origin.clone(), start, g.bin.clone())
     };
     emit_state(&app);
     layout(&app);
@@ -264,15 +306,22 @@ pub fn relogin(app: &AppHandle, id: &str) {
         }
         match res {
             Ok(info) => {
-                {
+                let moved = {
                     let core = app.state::<Core>();
                     let mut g = core.lock();
-                    g.origins.insert(id.clone(), info.origin.clone());
+                    let old = g.origins.insert(id.clone(), info.origin.clone());
                     if let Some(lu) = last.filter(|u| u != "/") {
                         g.pending_after_login.entry(id.clone()).or_insert(lu);
                     }
-                }
-                if let Some(wv) = app.get_webview(&label_of(&id)) {
+                    old.as_ref() != Some(&info.origin)
+                };
+                if moved {
+                    // New port: the bridge script and capability are bound to the old origin → new webview.
+                    log::info!("hub {id}: web đổi địa chỉ, tạo lại WebView");
+                    if let Err(e) = create(&app, &id, info.login_url) {
+                        set_status(&app, &id, HubStatus::Error { message: e });
+                    }
+                } else if let Some(wv) = app.get_webview(&label_of(&id)) {
                     log::info!("hub {id}: đăng nhập lại tự động");
                     let _ = wv.navigate(info.login_url);
                 }
@@ -443,11 +492,20 @@ fn create(app: &AppHandle, id: &str, start: Url) -> Result<(), String> {
     if let Some(old) = app.get_webview(&label) {
         let _ = old.close();
     }
+    let origin = current_origin(app, id).ok_or("Hub chưa có địa chỉ")?;
+    let poll = {
+        let core = app.state::<Core>();
+        let g = core.lock();
+        g.reg.settings.badge_poll_s
+    };
+    // Bridge (P3): capability for exactly this origin, granted before the first page can call it.
+    crate::bridge::grant(app, &label, &origin);
     let (a1, a2, a3, a4) = (app.clone(), app.clone(), app.clone(), app.clone());
     let (i1, i2, i3, i4) = (id.to_string(), id.to_string(), id.to_string(), id.to_string());
     // Windows sets the UA through WebView2 settings before the first real navigation (see below).
     let initial = if cfg!(windows) { Url::parse("about:blank").expect("about:blank") } else { start.clone() };
     let mut builder = WebviewBuilder::new(&label, WebviewUrl::External(initial))
+        .initialization_script(crate::bridge::init_script(&origin, poll))
         .on_navigation(move |u| on_navigate(&a1, &i1, u))
         .on_page_load(move |_wv, p| {
             if p.event() == PageLoadEvent::Finished {

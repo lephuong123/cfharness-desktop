@@ -18,9 +18,10 @@ path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "=2.7.4", features = [] }
+cc = "1"
 
 [dependencies]
-tauri = { version = "=2.12.5", features = ["unstable"] }
+tauri = { version = "=2.12.5", features = ["unstable", "tray-icon"] }
 tauri-plugin-opener = "=2.7.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -36,10 +37,27 @@ reqwest = { version = "=0.13.5", default-features = false, features = ["native-t
 tokio = { version = "1", features = ["time", "sync", "macros"] }
 # Directory tokens: macOS Keychain / Windows Credential Manager.
 keyring = { version = "=3.6.3", features = ["apple-native", "windows-native"] }
+tauri-plugin-autostart = "=2.7.0"
+tauri-plugin-deep-link = "=2.6.3"
+tauri-plugin-single-instance = { version = "=2.5.5", features = ["deep-link"] }
+# clipboard_write bridge (G5) — Rust API only, no JS plugin permission.
+arboard = { version = "=3.7.0", default-features = false }
+base64 = "0.22"
+# Windows speech (whisper.cpp) — off by default: needs cmake + a C++ toolchain, see README.
+whisper-rs = { version = "=0.16.0", optional = true }
+cpal = { version = "=0.18.2", optional = true }
+
+[features]
+default = []
+whisper = ["dep:whisper-rs", "dep:cpal"]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+mac-notification-sys = "=0.6.15"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"
 windows = { version = "0.62", features = ["Win32_System_Com"] }
+tauri-winrt-notification = "=0.8.1"
 
 [dev-dependencies]
 tempfile = "3"

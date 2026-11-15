@@ -278,6 +278,76 @@ pub async fn select_relative(app: AppHandle, offset: i64) -> Result<(), String> 
     webviews::select_relative(app, offset.clamp(-1, 1)).await
 }
 
+// ------------------------------------------------------------------------------------------- install (P3)
+
+/// Onboarding: what the automatic install would do (latest tag, uv/git/claude found?). Runs nothing.
+#[tauri::command]
+pub async fn install_plan(app: AppHandle) -> Result<crate::installer::Plan, String> {
+    crate::installer::plan(&app).await
+}
+
+/// The user clicked "Cài": run the plan identified by `nonce`.
+#[tauri::command]
+pub async fn install_run(app: AppHandle, nonce: u64) -> Result<(), String> {
+    crate::installer::run(app, nonce).await
+}
+
+// ------------------------------------------------------------------------------------------- settings (P3)
+
+#[tauri::command]
+pub async fn set_settings(
+    app: AppHandle,
+    live_webviews: u64,
+    notify: bool,
+    badge_poll_s: u64,
+    autostart: bool,
+) -> Result<(), String> {
+    let (autostart_changed, limit, active) = {
+        let core = app.state::<Core>();
+        let mut g = core.lock();
+        if g.read_only {
+            return Err("hubs.json do bản app mới hơn ghi — bản này chỉ đọc".into());
+        }
+        let before = g.reg.settings.autostart;
+        g.reg.settings.update(live_webviews, notify, badge_poll_s, autostart)?;
+        core.persist(&g);
+        (before != autostart, g.reg.settings.live_limit(), g.reg.active.clone())
+    };
+    if autostart_changed {
+        use tauri_plugin_autostart::ManagerExt;
+        let al = app.autolaunch();
+        let r = if autostart { al.enable() } else { al.disable() };
+        if let Err(e) = r {
+            log::warn!("không đổi được tự khởi động: {e}");
+            let core = app.state::<Core>();
+            let mut g = core.lock();
+            g.reg.settings.autostart = !autostart;
+            core.persist(&g);
+            drop(g);
+            webviews::emit_state(&app);
+            return Err(format!("Không đổi được tự khởi động cùng hệ điều hành: {e}"));
+        }
+    }
+    // Fewer live webviews: put the least recently used ones to sleep now.
+    let evict = {
+        let core = app.state::<Core>();
+        let mut g = core.lock();
+        match active.filter(|a| g.lru.contains(a)) {
+            Some(a) => g.touch_lru(&a, limit),
+            None => {
+                let mut v = vec![];
+                while g.lru.len() > limit {
+                    v.push(g.lru.remove(0));
+                }
+                v
+            }
+        }
+    };
+    webviews::sleep_hubs(&app, evict);
+    webviews::emit_state(&app);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

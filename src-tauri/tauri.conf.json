@@ -16,15 +16,21 @@
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost",
       "freezePrototype": true,
-      "capabilities": ["shell"]
+      "capabilities": [
+        "shell"
+      ]
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg", "nsis"],
+    "targets": [
+      "app",
+      "dmg",
+      "nsis"
+    ],
     "category": "DeveloperTool",
     "shortDescription": "Vỏ desktop cho các hub cfharness",
-    "longDescription": "Cfharness Desktop hiển thị giao diện web của các hub cfharness (local và cloud) trong một cửa sổ, kèm phần native: thanh chọn hub, đăng nhập tự động hub local.",
+    "longDescription": "Cfharness Desktop hiển thị giao diện web của các hub cfharness (local và cloud) trong một cửa sổ, kèm phần native: thanh chọn hub, đăng nhập tự động hub local, badge + thông báo, tray, deep link cfharness://, giọng nói.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -34,14 +40,30 @@
     ],
     "macOS": {
       "minimumSystemVersion": "14.0",
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "entitlements": "Entitlements.plist"
     },
     "windows": {
-      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["Vietnamese", "English"],
+        "languages": [
+          "Vietnamese",
+          "English"
+        ],
         "displayLanguageSelector": false
+      }
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "cfharness"
+        ]
       }
     }
   }

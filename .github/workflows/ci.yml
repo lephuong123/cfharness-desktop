@@ -30,5 +30,9 @@ jobs:
       - name: cargo clippy
         working-directory: src-tauri
         run: cargo clippy --all-targets -- -D warnings
+      - name: cargo clippy --features whisper (giọng nói Windows, cần cmake + MSVC có sẵn trên runner)
+        if: runner.os == 'Windows'
+        working-directory: src-tauri
+        run: cargo clippy --features whisper --all-targets -- -D warnings
       - name: Debug bundle (không ký OS)
         run: npm run tauri build -- --debug --no-bundle

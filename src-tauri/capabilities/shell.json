@@ -24,6 +24,9 @@
     "allow-move-hub",
     "allow-remove-hub",
     "allow-set-overlay",
-    "allow-select-relative"
+    "allow-select-relative",
+    "allow-install-plan",
+    "allow-install-run",
+    "allow-set-settings"
   ]
 }

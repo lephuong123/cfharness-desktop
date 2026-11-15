@@ -139,7 +139,36 @@ impl Default for Settings {
     }
 }
 
+/// Values accepted from the settings screen (`set_settings`).
+pub const LIVE_MIN: usize = 1;
+pub const LIVE_MAX: usize = 20;
+
 impl Settings {
+    /// Validate + apply the settings screen values (unknown keys in `extra` are kept).
+    pub fn update(
+        &mut self,
+        live_webviews: u64,
+        notify: bool,
+        badge_poll_s: u64,
+        autostart: bool,
+    ) -> Result<(), String> {
+        if !(LIVE_MIN as u64..=LIVE_MAX as u64).contains(&live_webviews) {
+            return Err(format!("Số WebView giữ sống phải từ {LIVE_MIN} đến {LIVE_MAX}"));
+        }
+        if !(crate::bridge::BADGE_POLL_MIN_S..=crate::bridge::BADGE_POLL_MAX_S).contains(&badge_poll_s) {
+            return Err(format!(
+                "Chu kỳ cập nhật badge phải từ {} đến {} giây",
+                crate::bridge::BADGE_POLL_MIN_S,
+                crate::bridge::BADGE_POLL_MAX_S
+            ));
+        }
+        self.live_webviews = live_webviews as usize;
+        self.notify = notify;
+        self.badge_poll_s = badge_poll_s;
+        self.autostart = autostart;
+        Ok(())
+    }
+
     /// `live_webviews` clamped to a sane range (at least the active hub stays alive).
     pub fn live_limit(&self) -> usize {
         self.live_webviews.clamp(1, 20)

@@ -21,6 +21,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let import = MenuItem::with_id(app, "import", "Thêm hub / Import URL…", true, Some("CmdOrCtrl+Shift+N"))?;
     let sync_all = MenuItem::with_id(app, "sync_all", "Đồng bộ lại các directory", true, None::<&str>)?;
     let manage = MenuItem::with_id(app, "manage", "Quản lý hub…", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Cài đặt…", true, Some("CmdOrCtrl+,"))?;
     let switcher = MenuItem::with_id(app, "switcher", "Chuyển nhanh tới hub…", true, Some("CmdOrCtrl+K"))?;
     let prev = MenuItem::with_id(app, "hub_prev", "Hub trước", true, Some("CmdOrCtrl+Shift+["))?;
     let next = MenuItem::with_id(app, "hub_next", "Hub sau", true, Some("CmdOrCtrl+Shift+]"))?;
@@ -94,6 +95,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     }
     hub_items.push(&sep2);
     hub_items.push(&manage);
+    #[cfg(not(target_os = "macos"))]
+    hub_items.push(&settings);
     let hub = Submenu::with_items(app, "Hub", true, &hub_items)?;
     let window = Submenu::with_items(
         app,
@@ -113,6 +116,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             true,
             &[
                 &about,
+                &PredefinedMenuItem::separator(app)?,
+                &settings,
                 &PredefinedMenuItem::separator(app)?,
                 &PredefinedMenuItem::services(app, Some("Dịch vụ"))?,
                 &PredefinedMenuItem::separator(app)?,
@@ -199,7 +204,7 @@ fn dispatch(app: &AppHandle, id: &str) {
                 let _ = webviews::select_relative(a, off).await;
             });
         }
-        "switcher" | "import" | "manage" => {
+        "switcher" | "import" | "manage" | "settings" => {
             // The shell opens the dialog (and asks to cover the hub webview via `set_overlay`).
             if let Some(shell) = app.get_webview(webviews::SHELL_LABEL) {
                 let _ = shell.set_focus();
@@ -211,6 +216,7 @@ fn dispatch(app: &AppHandle, id: &str) {
             let a = app.clone();
             tauri::async_runtime::spawn(async move { crate::remote::sync_all(&a).await });
         }
+        other if other.starts_with("tray:") => crate::tray::dispatch(app, other),
         other => {
             if let Some(n) = hub_number(other) {
                 let a = app.clone();

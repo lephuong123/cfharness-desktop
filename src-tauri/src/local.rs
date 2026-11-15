@@ -225,7 +225,7 @@ pub fn find_binary() -> Option<PathBuf> {
 }
 
 /// PATH for the child: the inherited one plus the user bin dirs (so the CLI finds `uv`, `claude`, …).
-fn child_path(user_home: &Path) -> Option<std::ffi::OsString> {
+pub fn child_path(user_home: &Path) -> Option<std::ffi::OsString> {
     let mut parts: Vec<PathBuf> =
         std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
     for d in extra_bin_dirs(user_home) {

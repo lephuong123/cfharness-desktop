@@ -1,6 +1,7 @@
 //! Shared app state. Rule: never call a webview/window method while holding `Core::inner` (many of them
 //! round-trip to the main thread, which may itself be waiting on the lock inside a navigation callback).
 
+use crate::bridge::Badge;
 use crate::directory::{self, DirHub, OriginChange};
 use crate::fetch::{Fetcher, Reach};
 use crate::hubs::{self, HubKind, Registry};
@@ -57,6 +58,13 @@ pub struct Inner {
     /// Result of "Kiểm tra" in the import dialog, applied by "Thêm" (holds the directory token until then).
     pub pending_import: Option<PendingImport>,
     pub import_seq: u64,
+    /// Last C3 counts reported by each hub page (memory only).
+    pub badges: HashMap<String, Badge>,
+    /// Path to open instead of `last_url` the next time the hub webview is created (notification click, deep link).
+    pub pending_path: HashMap<String, String>,
+    /// Install plan shown to the user (`install_run` must quote its nonce).
+    pub pending_install: Option<crate::installer::Plan>,
+    pub installing: bool,
 }
 
 /// What `inspect_url` found, kept until the user confirms.
@@ -143,6 +151,10 @@ impl Inner {
             dir_errors: HashMap::new(),
             pending_import: None,
             import_seq: 0,
+            badges: HashMap::new(),
+            pending_path: HashMap::new(),
+            pending_install: None,
+            installing: false,
         }
     }
 
@@ -187,6 +199,8 @@ pub struct HubDto {
     pub initial: String,
     pub status: HubStatus,
     pub badge: Option<u32>,
+    /// ESTOP reported by the hub page (C3).
+    pub estop: bool,
     pub home: Option<String>,
     pub origin: Option<String>,
     pub hidden: bool,
@@ -222,6 +236,18 @@ pub struct ShellState {
     pub read_only: bool,
     pub find_open: bool,
     pub version: String,
+    pub settings: SettingsDto,
+    pub installing: bool,
+    /// Native speech recognition available on this build/OS.
+    pub speech: bool,
+}
+
+#[derive(Serialize, Clone)]
+pub struct SettingsDto {
+    pub live_webviews: usize,
+    pub notify: bool,
+    pub autostart: bool,
+    pub badge_poll_s: u64,
 }
 
 /// First letter for the rail tile ("Local (hub-thu-2)" → "H", "Local" → "L").
@@ -245,7 +271,8 @@ impl Inner {
                     color: h.color.clone(),
                     initial: initial_of(&h.name),
                     status: self.status_of(&h.id),
-                    badge: None,
+                    badge: self.badges.get(&h.id).map(crate::notify::rail_count).filter(|n| *n > 0),
+                    estop: self.badges.get(&h.id).map(|b| b.estop).unwrap_or(false),
                     home: h.home.clone(),
                     origin: self.origins.get(&h.id).map(|o| o.as_string()).or_else(|| h.origin.clone()),
                     hidden: h.hidden,
@@ -276,6 +303,14 @@ impl Inner {
             read_only: self.read_only,
             find_open: self.find_open,
             version: env!("CARGO_PKG_VERSION").to_string(),
+            settings: SettingsDto {
+                live_webviews: self.reg.settings.live_limit(),
+                notify: self.reg.settings.notify,
+                autostart: self.reg.settings.autostart,
+                badge_poll_s: crate::bridge::poll_interval(self.reg.settings.badge_poll_s),
+            },
+            installing: self.installing,
+            speech: crate::speech::compiled_in(),
         }
     }
 }
