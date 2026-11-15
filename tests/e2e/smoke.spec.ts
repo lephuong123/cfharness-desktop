@@ -95,6 +95,11 @@ test("[pages] mọi trang chính mở được trong WebKit với phiên đăng 
   });
   for (const p of PAGES) {
     const r = await page.goto(ORIGIN + p);
+    // /admin/* chỉ dành cho user OS thuộc nhóm `cfharness-admin` (hub trả 403 có trang lỗi khi không thuộc nhóm — runner CI không thuộc nhóm).
+    if (p.startsWith("/admin/") && r?.status() === 403) {
+      await expect(page, p).toHaveTitle(/cfharness/);
+      continue;
+    }
     expect(r?.status(), p).toBeLessThan(400);
     expect(page.url().replace(ORIGIN, "").split("?")[0], p).toBe(p);
     await expect(page, p).toHaveTitle(/cfharness/);
