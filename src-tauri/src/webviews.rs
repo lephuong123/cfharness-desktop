@@ -238,6 +238,9 @@ async fn open_local(
     let home = home.ok_or_else(|| "Hub local thiếu đường dẫn HUB_HOME".to_string())?;
     let info = c1(bin, PathBuf::from(&home)).await?;
     log::info!("hub {id}: web {} (phiên bản {}, started={})", info.origin.as_string(), info.version, info.started);
+    if !loopback_gate(app, id, &info.origin).await {
+        return Ok(());
+    }
     {
         let core = app.state::<Core>();
         let mut g = core.lock();
@@ -253,6 +256,21 @@ async fn open_local(
         core.persist(&g);
     }
     create(app, id, info.login_url)
+}
+
+/// G6: a local hub is only loaded when its host resolves to loopback (system resolver, as WKWebView). Otherwise
+/// the hub gets `HubStatus::Unresolved` (shell screen with the /etc/hosts fix) and `false` is returned.
+pub async fn loopback_gate(app: &AppHandle, id: &str, origin: &Origin) -> bool {
+    if crate::hostfix::check_async(origin.host.clone()).await.ok() {
+        return true;
+    }
+    let host = origin.host.clone();
+    let plan = tauri::async_runtime::spawn_blocking(move || crate::hostfix::plan_for(&host, &crate::hostfix::read_hosts()))
+        .await
+        .unwrap_or_else(|_| crate::hostfix::plan_for(&origin.host, ""));
+    log::warn!("hub {id}: {} không trỏ về máy này — không tải WebView, hiện màn sửa /etc/hosts", origin.host);
+    set_status(app, id, HubStatus::Unresolved { plan });
+    false
 }
 
 async fn open_remote(
@@ -321,7 +339,12 @@ pub fn relogin(app: &AppHandle, id: &str) {
                     }
                     old.as_ref() != Some(&info.origin)
                 };
-                if moved {
+                if moved && !loopback_gate(&app, &id, &info.origin).await {
+                    if let Some(wv) = app.get_webview(&label_of(&id)) {
+                        let _ = wv.close();
+                    }
+                    layout(&app);
+                } else if moved {
                     // New port: the bridge script and capability are bound to the old origin → new webview.
                     log::info!("hub {id}: web đổi địa chỉ, tạo lại WebView");
                     if let Err(e) = create(&app, &id, info.login_url) {

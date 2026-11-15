@@ -41,8 +41,73 @@ pub async fn retry_hub(app: AppHandle, id: String) -> Result<(), String> {
         g.lru.retain(|x| x != &id);
         g.relogin.remove(&id);
         g.bin = local::find_binary();
+        // G6 "Thử lại": resolve the host again instead of using the session cache.
+        if let crate::core::HubStatus::Unresolved { plan } = g.status_of(&id) {
+            crate::hostfix::invalidate(&plan.host);
+        }
     }
     webviews::select(app, id).await
+}
+
+// ------------------------------------------------------------------------------------------- G6 /etc/hosts fix
+
+static FIXING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// G6 "Sửa giúp tôi" (after the shell's confirm dialog): the ONLY admin-rights action of the app. Host and lines come
+/// from the hub's current `Unresolved` status (never from the shell), recomputed against /etc/hosts right now.
+/// Returns `"fixed"` (the hub is being opened), `"cancelled"` (admin prompt dismissed — not an error) or
+/// `"unresolved"` (ran, but the host still does not resolve to loopback).
+#[tauri::command]
+pub async fn hosts_fix(app: AppHandle, id: String) -> Result<String, String> {
+    if !valid_id(&id) {
+        return Err("id không hợp lệ".into());
+    }
+    let host = {
+        let core = app.state::<Core>();
+        let g = core.lock();
+        match g.status_of(&id) {
+            crate::core::HubStatus::Unresolved { plan } if plan.can_fix => plan.host,
+            _ => return Err("Hub này không cần sửa /etc/hosts".into()),
+        }
+    };
+    if FIXING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Err("Đang sửa, vui lòng chờ".into());
+    }
+    let h = host.clone();
+    let res = tauri::async_runtime::spawn_blocking(move || {
+        let plan = crate::hostfix::plan_for(&h, &crate::hostfix::read_hosts());
+        crate::hostfix::run_fix(&h, &plan.lines)
+    })
+    .await;
+    FIXING.store(false, std::sync::atomic::Ordering::SeqCst);
+    match res.map_err(|e| e.to_string())? {
+        Ok(()) => {}
+        Err(crate::hostfix::FixError::Cancelled) => return Ok("cancelled".into()),
+        Err(crate::hostfix::FixError::Failed(m)) => return Err(format!("Không sửa được /etc/hosts: {m}")),
+    }
+    crate::hostfix::invalidate(&host);
+    if crate::hostfix::check_async(host.clone()).await.ok() {
+        log::info!("G6: {host} đã phân giải về loopback sau khi sửa — mở hub {id}");
+        {
+            let core = app.state::<Core>();
+            core.lock().status.insert(id.clone(), crate::core::HubStatus::Idle);
+        }
+        let app2 = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = webviews::select(app2, id).await;
+        });
+        return Ok("fixed".into());
+    }
+    let h = host.clone();
+    let plan = tauri::async_runtime::spawn_blocking(move || crate::hostfix::plan_for(&h, &crate::hostfix::read_hosts()))
+        .await
+        .map_err(|e| e.to_string())?;
+    {
+        let core = app.state::<Core>();
+        core.lock().status.insert(id, crate::core::HubStatus::Unresolved { plan });
+    }
+    webviews::emit_state(&app);
+    Ok("unresolved".into())
 }
 
 /// Rediscover local hubs and the `cfharness` binary.

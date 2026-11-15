@@ -18,6 +18,7 @@
 | `shell-ui/` | UI vỏ (Vite + TypeScript thuần): rail hub, menu "+", màn chưa cài cfharness, thanh tìm. Bundle cục bộ, là bề mặt DUY NHẤT có IPC |
 | `src-tauri/src/hubs.rs` | Registry app `hubs.json` (PLAN §4): schema `version`, migrate v0, giữ trường lạ (`extra`), file mới hơn → chỉ đọc, ghi nguyên tử 0600, `last_url_of` |
 | `src-tauri/src/local.rs` | Khám phá hub local (`~/.config/cfharness/hubs.json` + `~/.cfharness`, lọc thư mục tạm/thiếu `config.yaml`), tìm binary `cfharness`, chạy + parse C1 `cfharness web --json --ensure` |
+| `src-tauri/src/hostfix.rs` | G6: host của hub local (`cfharness.localhost`) phải phân giải TOÀN loopback bằng resolver hệ thống trước khi tải WebView (cache theo host, bỏ qua trên Windows); không được → `HubStatus::Unresolved` + màn sửa `/etc/hosts` (`hosts_fix`). Hàm thuần: `valid_host`, `classify`, `missing_lines`, `fix_script`, `manual_command`. Debug: `CFHARNESS_DESKTOP_FORCE_UNRESOLVED=1` |
 | `src-tauri/src/nav.rs` | `Origin`, khoá điều hướng `decide()` (Allow/External/Block), `is_login_page` |
 | `src-tauri/src/webviews.rs` | Một child WebView/hub cạnh rail: data store riêng, khoá điều hướng, chặn cửa sổ mới, tải tệp → hộp thoại Lưu, LRU, `last_url`, UA C7, đăng nhập lại |
 | `src-tauri/src/directory.rs` | THUẦN (không I/O): phân loại URL dán vào (`classify_input`, tách token `t=`), `validate_origin` (= `parse_public_origin` của hub), `clean_line` (bỏ điều khiển/bidi/vô hình), `parse_directory` (C5, schema 1, ≤200), `plan_sync`/`apply_sync` (thêm, gộp, stale, `origin_changes` — không bao giờ tự đổi origin), `resolve_origin_change`, giờ ISO |
@@ -96,7 +97,11 @@ Kết quả spike P0 (cái gì đã kiểm chứng, cái gì còn là giả đ�
    `last_url` chỉ là path+query, KHÔNG BAO GIỜ fragment (`#k=`) hay `/login?t=` (`hubs::last_url_of`). Log URL qua
    `webviews::redact_url` (không query, không fragment).
 7. Thư mục dữ liệu app (`io.cfharness.desktop`) được hub chặn với agent (C6/H5) — đừng đổi identifier.
-8. Không `--dangerously-*`, không mở cổng mạng nào từ app (app chỉ là client). Không chạy gì bằng sudo/admin.
+8. Không `--dangerously-*`, không mở cổng mạng nào từ app (app chỉ là client). Không chạy gì bằng sudo/admin — NGOẠI LỆ DUY NHẤT: G6
+   `hosts_fix` (macOS) sau hộp xác nhận nêu đúng các dòng: một `osascript … with administrator privileges` chỉ thêm
+   `127.0.0.1 <host>` / `::1 <host>` còn thiếu vào `/etc/hosts` rồi flush DNS. Host lấy từ trạng thái của hub (không từ shell), kiểm
+   `[a-z0-9.-]+\.localhost`, script dựng từ hằng + host đã kiểm (không `"`/`\`, test chuỗi chính xác). Không thêm hành động admin nào khác;
+   hub local KHÔNG BAO GIỜ đổi sang `127.0.0.1` (WT-1) và không tải WebView khi host không phân giải về loopback.
 9. Ngoại lệ ATS chỉ cho `localhost` và subdomain; hub cloud bắt buộc https (kiểm ở `open_remote`).
 14. Tự cập nhật: KHÔNG commit khoá riêng updater (chỉ secret CI `TAURI_SIGNING_PRIVATE_KEY`); `tauri.conf.json` giữ placeholder
     (test `repo_config_checked_against_placeholder`), `createUpdaterArtifacts` chỉ bật lúc phát hành qua `--config`. Endpoint chỉ là

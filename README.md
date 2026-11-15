@@ -150,6 +150,27 @@ Dữ liệu của app (danh sách hub `hubs.json` quyền 0600, kho WebView): ma
 `~/Library/Application Support/io.cfharness.desktop/`, Windows `%APPDATA%\io.cfharness.desktop\`. App **không** lưu token
 người, khoá ký link hay bí mật TOTP của hub.
 
+## Xử lý sự cố
+
+### Hub local báo "macOS trên máy này không trỏ tên cfharness.localhost về chính máy tính này"
+
+Hub local chạy ở `http://cfharness.localhost:<cổng>` (hub bắt buộc đúng tên này vì lý do an toàn — không đổi sang `127.0.0.1` được).
+Đa số máy Mac tự trỏ `*.localhost` về chính máy, nhưng một số phiên bản/cấu hình macOS thì không (đã gặp trên macOS 15), khi đó
+WebView báo "không tìm thấy máy chủ". Trước khi mở hub local, app kiểm tra tên này bằng resolver của hệ thống; nếu không ra địa chỉ
+loopback thì app **không** tải trang mà hiện màn hướng dẫn:
+
+- **Sửa giúp tôi…** → hộp xác nhận nêu đúng các dòng sẽ thêm → macOS hỏi mật khẩu quản trị → app thêm `127.0.0.1 cfharness.localhost`
+  và `::1 cfharness.localhost` vào cuối `/etc/hosts` (chỉ dòng còn thiếu, không sửa gì khác), làm mới bộ nhớ đệm DNS rồi mở hub.
+  Bấm Huỷ ở hộp mật khẩu thì không có gì thay đổi. **Đây là việc duy nhất app xin quyền quản trị.**
+- Tự làm trong Terminal (lệnh này cũng hiện trên màn hướng dẫn), rồi bấm **Thử lại**:
+
+```bash
+sudo sh -c 'grep -qxF "127.0.0.1 cfharness.localhost" /etc/hosts || echo "127.0.0.1 cfharness.localhost" >> /etc/hosts; grep -qxF "::1 cfharness.localhost" /etc/hosts || echo "::1 cfharness.localhost" >> /etc/hosts' && sudo dscacheutil -flushcache && sudo killall -HUP mDNSResponder
+```
+
+Kiểm tra: `dscacheutil -q host -a name cfharness.localhost` phải ra `127.0.0.1` / `::1`. Windows không cần bước này (WebView2 tự
+trỏ `*.localhost` về máy). Bản debug có thể giả lập lỗi để xem màn hướng dẫn: `CFHARNESS_DESKTOP_FORCE_UNRESOLVED=1` (bản phát hành bỏ qua biến này).
+
 ## Phát triển
 
 ```bash

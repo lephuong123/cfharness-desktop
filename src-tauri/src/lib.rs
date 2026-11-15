@@ -6,6 +6,7 @@ pub mod core;
 pub mod deeplink;
 pub mod directory;
 pub mod fetch;
+pub mod hostfix;
 pub mod hubs;
 pub mod installer;
 pub mod local;
@@ -74,6 +75,7 @@ pub fn run() {
             commands::update_check,
             commands::update_install,
             commands::set_update_prefs,
+            commands::hosts_fix,
             bridge::badge_update,
             bridge::speech_available,
             bridge::speech_start,

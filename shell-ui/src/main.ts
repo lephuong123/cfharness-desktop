@@ -13,7 +13,16 @@ type Status =
   | { state: "starting" }
   | { state: "online" }
   | { state: "login" }
-  | { state: "error"; message: string };
+  | { state: "error"; message: string }
+  | { state: "unresolved"; plan: HostsPlan };
+
+/// G6: `cfharness.localhost` does not resolve to this computer (src-tauri/src/hostfix.rs).
+interface HostsPlan {
+  host: string;
+  lines: string[];
+  manual: string;
+  can_fix: boolean;
+}
 
 type Reach = "online" | "offline" | "tls" | "bad";
 
@@ -218,6 +227,8 @@ function railStatus(h: Hub): { cls: string; label: string } {
   switch (h.status.state) {
     case "error":
       return { cls: "error", label: "lỗi" };
+    case "unresolved":
+      return { cls: "error", label: "chưa trỏ được về máy này" };
     case "online":
       return { cls: "online", label: "đang kết nối" };
     case "login":
@@ -567,6 +578,73 @@ function errorPanel(h: Hub, message: string): HTMLElement {
   );
 }
 
+// G6: the hub's host does not resolve to loopback → explain, offer the one-time /etc/hosts fix (admin prompt) or the
+// manual command. "Sửa giúp tôi" always goes through a confirm dialog that shows the exact lines.
+let hostsMsg: { hub: string; text: string; error: boolean } | null = null;
+
+function unresolvedPanel(h: Hub, plan: HostsPlan): HTMLElement {
+  const box = panel(
+    el("h1", { textContent: `Không mở được ${h.name}` }),
+    el("p", { textContent: `macOS trên máy này không trỏ tên ${plan.host} về chính máy tính này, nên trang của hub local không tải được (WebView báo “không tìm thấy máy chủ”).` }),
+    el("p", { textContent: "Cách sửa: thêm hai dòng sau vào tệp /etc/hosts (cần quyền quản trị, chỉ làm một lần):" }),
+    el("pre", { textContent: plan.host ? `127.0.0.1 ${plan.host}\n::1 ${plan.host}` : "" }),
+  );
+  if (hostsMsg && hostsMsg.hub === h.id) box.append(el("p", { className: hostsMsg.error ? "error-msg" : "note", textContent: hostsMsg.text }));
+  const actions = el("div", { className: "actions" });
+  if (plan.can_fix) actions.append(button("Sửa giúp tôi…", () => hostsConfirm(h, plan), true));
+  actions.append(
+    button("Thử lại", async () => {
+      hostsMsg = null;
+      await call("retry_hub", { id: h.id });
+    }, !plan.can_fix),
+  );
+  box.append(
+    actions,
+    el("p", { className: "note", textContent: "Muốn tự làm? Mở Terminal, dán lệnh dưới đây (sẽ hỏi mật khẩu máy), rồi bấm “Thử lại”:" }),
+    el("pre", { textContent: plan.manual }),
+  );
+  return box;
+}
+
+function hostsConfirm(h: Hub, plan: HostsPlan): void {
+  openModal("hosts", () => {
+    const body = el("div", { className: "stack" }, dialogHead("Sửa /etc/hosts?"));
+    if (plan.lines.length) {
+      body.append(
+        el("p", { textContent: "App sẽ thêm đúng những dòng sau vào cuối tệp /etc/hosts (không sửa gì khác), rồi làm mới bộ nhớ đệm DNS của macOS:" }),
+        el("pre", { className: "hosts-lines", textContent: plan.lines.join("\n") }),
+      );
+    } else {
+      body.append(el("p", { textContent: "Các dòng cần thiết đã có trong /etc/hosts. App chỉ làm mới bộ nhớ đệm DNS của macOS (không sửa tệp)." }));
+    }
+    body.append(
+      el("p", { className: "note", textContent: "macOS sẽ hỏi mật khẩu quản trị. Đây là việc duy nhất app cần quyền quản trị." }),
+      el(
+        "div",
+        { className: "actions" },
+        button(
+          "Tiếp tục",
+          async () => {
+            closeModal();
+            try {
+              const r = await invoke<string>("hosts_fix", { id: h.id });
+              if (r === "cancelled") hostsMsg = null;
+              else if (r === "unresolved") hostsMsg = { hub: h.id, text: "Đã chạy xong nhưng macOS vẫn chưa trỏ tên này về máy. Thử lại sau vài giây hoặc khởi động lại máy.", error: true };
+              else hostsMsg = null;
+            } catch (e) {
+              hostsMsg = { hub: h.id, text: errText(e), error: true };
+            }
+            if (state) renderContent(state);
+          },
+          true,
+        ),
+        button("Huỷ", () => closeModal()),
+      ),
+    );
+    return body;
+  });
+}
+
 function renderContent(s: ShellState): void {
   const c = $("content");
   let node: HTMLElement;
@@ -581,6 +659,8 @@ function renderContent(s: ShellState): void {
     node = s.hubs.length === 0 ? noHubs() : panel(el("h1", { textContent: "Chọn một hub ở thanh bên trái" }), el("p", { textContent: `${MOD}K: chuyển nhanh tới hub.` }));
   } else if (active.status.state === "error") {
     node = errorPanel(active, active.status.message);
+  } else if (active.status.state === "unresolved") {
+    node = unresolvedPanel(active, active.status.plan);
   } else if (active.status.state === "idle" || active.status.state === "starting") {
     node = starting(active);
   } else {

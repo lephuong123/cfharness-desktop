@@ -29,6 +29,7 @@ fn main() {
         "update_check",
         "update_install",
         "set_update_prefs",
+        "hosts_fix",
         // hub bridge (never in shell.json)
         "badge_update",
         "speech_start",

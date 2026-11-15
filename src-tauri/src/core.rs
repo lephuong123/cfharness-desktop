@@ -27,6 +27,11 @@ pub enum HubStatus {
     Error {
         message: String,
     },
+    /// G6: the local hub's host does not resolve to loopback with the system resolver — the webview is not loaded;
+    /// the shell offers the /etc/hosts fix (`hostfix`).
+    Unresolved {
+        plan: crate::hostfix::Plan,
+    },
 }
 
 pub struct Inner {
