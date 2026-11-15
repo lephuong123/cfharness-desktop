@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resolve-origin-change"
+description = "Enables the resolve_origin_change command without any pre-configured scope."
+commands.allow = ["resolve_origin_change"]
+
+[[permission]]
+identifier = "deny-resolve-origin-change"
+description = "Denies the resolve_origin_change command without any pre-configured scope."
+commands.deny = ["resolve_origin_change"]

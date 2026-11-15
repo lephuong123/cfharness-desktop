@@ -2,10 +2,14 @@
 
 pub mod commands;
 pub mod core;
+pub mod directory;
+pub mod fetch;
 pub mod hubs;
 pub mod local;
 pub mod menu;
 pub mod nav;
+pub mod remote;
+pub mod secrets;
 pub mod webviews;
 
 use crate::core::Core;
@@ -26,6 +30,18 @@ pub fn run() {
             commands::create_default_hub,
             commands::find_in_page,
             commands::find_close,
+            commands::inspect_url,
+            commands::confirm_import,
+            commands::sync_directory,
+            commands::remove_directory,
+            commands::resolve_origin_change,
+            commands::rename_hub,
+            commands::set_hub_color,
+            commands::set_hub_hidden,
+            commands::move_hub,
+            commands::remove_hub,
+            commands::set_overlay,
+            commands::select_relative,
         ])
         .setup(|app| {
             // `CFHARNESS_DESKTOP_DATA_DIR` (dev/test only) isolates a run from the real app data dir.
@@ -80,11 +96,11 @@ pub fn run() {
                 }
             });
 
-            // Open the last active hub (if cfharness is installed).
+            // Open the last active hub (local hubs need cfharness; cloud hubs do not) at its last URL.
             let active = {
                 let core = handle.state::<Core>();
                 let g = core.lock();
-                g.reg.active.clone().filter(|_| g.bin.is_some())
+                g.reg.active.clone().filter(|a| g.bin.is_some() || !g.is_local(a))
             };
             if let Some(id) = active {
                 let h3 = handle.clone();
@@ -94,6 +110,7 @@ pub fn run() {
                     }
                 });
             }
+            remote::start_background(handle.clone());
             Ok(())
         })
         .run(tauri::generate_context!())

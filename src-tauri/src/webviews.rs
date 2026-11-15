@@ -81,10 +81,12 @@ pub fn layout(app: &AppHandle) {
     let (active, find_open, live) = {
         let core = app.state::<Core>();
         let g = core.lock();
+        // A shell dialog (import, switcher, hub settings…) covers the content area: hide the hub meanwhile.
         let active_ok = g
             .reg
             .active
             .clone()
+            .filter(|_| !g.overlay)
             .filter(|a| matches!(g.status_of(a), HubStatus::Online | HubStatus::Login | HubStatus::Starting));
         (active_ok, g.find_open, g.lru.clone())
     };
@@ -154,7 +156,7 @@ pub async fn open(app: AppHandle, id: String) -> Result<(), String> {
     layout(&app);
     let result = match kind {
         HubKind::Local => open_local(&app, &id, home, last_url, bin).await,
-        HubKind::Remote => open_remote(&app, &id, origin_s, last_url),
+        HubKind::Remote => open_remote(&app, &id, origin_s, last_url).await,
     };
     {
         let core = app.state::<Core>();
@@ -205,12 +207,28 @@ async fn open_local(
     create(app, id, info.login_url)
 }
 
-fn open_remote(app: &AppHandle, id: &str, origin_s: Option<String>, last_url: Option<String>) -> Result<(), String> {
-    // P2: remote hubs (import/directory). The plumbing is shared: navigate to origin + last_url.
-    let origin =
-        origin_s.as_deref().and_then(Origin::parse).ok_or_else(|| "Origin của hub không hợp lệ".to_string())?;
-    if origin.scheme != "https" {
-        return Err("Hub cloud phải dùng https".into());
+async fn open_remote(
+    app: &AppHandle,
+    id: &str,
+    origin_s: Option<String>,
+    last_url: Option<String>,
+) -> Result<(), String> {
+    // Same rules as the import (https, no IP/localhost/path) — hubs.json is user-editable.
+    let origin = crate::directory::validate_origin(origin_s.as_deref().unwrap_or_default())
+        .map_err(|e| format!("Origin của hub không hợp lệ: {}", e.message()))?;
+    // Probe first: a TLS/network problem is shown in the shell (the webview would show a bare error page).
+    // The hub's own /login (TOTP) runs inside its webview — the app stores no credential for cloud hubs.
+    let reach = {
+        let core = app.state::<Core>();
+        let r = core.fetcher.probe(&origin).await;
+        core.lock().reach.insert(id.to_string(), r);
+        r
+    };
+    match reach {
+        crate::fetch::Reach::Tls => return Err(crate::fetch::FetchError::Tls.message()),
+        crate::fetch::Reach::Offline => return Err(crate::fetch::FetchError::Offline.message()),
+        // Bad = answers but without C2 (older hub): still usable.
+        crate::fetch::Reach::Online | crate::fetch::Reach::Bad => {}
     }
     let start = origin.join(last_url.as_deref().unwrap_or("/")).unwrap_or_else(|| origin.join("/").expect("root path"));
     {
@@ -548,6 +566,48 @@ pub fn active_webview(app: &AppHandle) -> Option<tauri::Webview> {
         g.reg.active.clone()?
     };
     app.get_webview(&label_of(&id))
+}
+
+/// Select the hub `offset` steps away in the visible rail order (Cmd/Ctrl+Shift+[ / ]).
+pub async fn select_relative(app: AppHandle, offset: i64) -> Result<(), String> {
+    let next = {
+        let core = app.state::<Core>();
+        let g = core.lock();
+        g.reg.neighbour(g.reg.active.as_deref(), offset)
+    };
+    match next {
+        Some(id) => select(app, id).await,
+        None => Ok(()),
+    }
+}
+
+/// Select the n-th (1-based) visible hub (Cmd/Ctrl+1…9).
+pub async fn select_index(app: AppHandle, n: usize) -> Result<(), String> {
+    let id = {
+        let core = app.state::<Core>();
+        let g = core.lock();
+        g.reg.rail_order(false).get(n.wrapping_sub(1)).cloned()
+    };
+    match id {
+        Some(id) => select(app, id).await,
+        None => Ok(()),
+    }
+}
+
+/// Show/hide a shell dialog over the content area (the active hub webview is hidden while it is open).
+pub fn set_overlay(app: &AppHandle, open: bool) {
+    {
+        let core = app.state::<Core>();
+        core.lock().overlay = open;
+    }
+    layout(app);
+    if open {
+        if let Some(shell) = app.get_webview(SHELL_LABEL) {
+            let _ = shell.set_focus();
+        }
+    } else if let Some(wv) = active_webview(app) {
+        let _ = wv.set_focus();
+    }
 }
 
 /// Label → hub id, used by menu actions.

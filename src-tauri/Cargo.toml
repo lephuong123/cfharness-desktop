@@ -30,6 +30,12 @@ log = "0.4"
 env_logger = "0.11"
 dirs = "6"
 rfd = "0.18"
+# Remote hubs / directory fetch: native TLS (Security.framework / SChannel) = same trust store as the webview,
+# no C toolchain needed for the Windows cross-check.
+reqwest = { version = "=0.13.5", default-features = false, features = ["native-tls", "system-proxy", "http2"] }
+tokio = { version = "1", features = ["time", "sync", "macros"] }
+# Directory tokens: macOS Keychain / Windows Credential Manager.
+keyring = { version = "=3.6.3", features = ["apple-native", "windows-native"] }
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"
@@ -37,6 +43,7 @@ windows = { version = "0.62", features = ["Win32_System_Com"] }
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { version = "1", features = ["rt", "macros", "time", "sync"] }
 
 [profile.release]
 codegen-units = 1

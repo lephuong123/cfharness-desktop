@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-move-hub"
+description = "Enables the move_hub command without any pre-configured scope."
+commands.allow = ["move_hub"]
+
+[[permission]]
+identifier = "deny-move-hub"
+description = "Denies the move_hub command without any pre-configured scope."
+commands.deny = ["move_hub"]

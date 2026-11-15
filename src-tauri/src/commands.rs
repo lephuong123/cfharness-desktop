@@ -2,6 +2,7 @@
 //! Hub webviews never get these: they carry untrusted agent content.
 
 use crate::core::{Core, ShellState};
+use crate::remote::{self, ImportPreview, SyncSummary};
 use crate::{local, webviews};
 use tauri::{AppHandle, Manager};
 
@@ -136,6 +137,145 @@ pub fn find_close(app: AppHandle) {
         let _ = wv.eval("try{window.getSelection().removeAllRanges()}catch(e){}");
     }
     set_find_open(&app, false);
+}
+
+// ------------------------------------------------------------------------------------------- cloud hubs (P2)
+
+/// "Thêm hub / Import URL" → step 1: inspect the URL (C2 hub or C5 directory), nothing is written yet.
+#[tauri::command]
+pub async fn inspect_url(app: AppHandle, url: String) -> Result<ImportPreview, String> {
+    if url.len() > 4096 {
+        return Err("URL quá dài".into());
+    }
+    remote::inspect(&app, &url).await
+}
+
+/// Step 2: apply what `inspect_url` found (`nonce` from its result).
+#[tauri::command]
+pub async fn confirm_import(app: AppHandle, nonce: u64, name: Option<String>) -> Result<SyncSummary, String> {
+    let summary = remote::confirm(&app, nonce, name).await?;
+    if let Some(id) = summary.select.clone() {
+        webviews::set_overlay(&app, false);
+        let _ = webviews::select(app, id).await;
+    }
+    Ok(summary)
+}
+
+#[tauri::command]
+pub async fn sync_directory(app: AppHandle, id: String) -> Result<SyncSummary, String> {
+    if !valid_id(&id) {
+        return Err("id không hợp lệ".into());
+    }
+    remote::sync_directory(&app, &id).await
+}
+
+#[tauri::command]
+pub async fn remove_directory(app: AppHandle, id: String, remove_hubs: bool, wipe: bool) -> Result<(), String> {
+    if !valid_id(&id) {
+        return Err("id không hợp lệ".into());
+    }
+    remote::remove_directory(&app, &id, remove_hubs, wipe).await
+}
+
+/// Answer an origin change proposed by a directory (`to` must match the pending proposal).
+#[tauri::command]
+pub fn resolve_origin_change(app: AppHandle, hub: String, to: String, accept: bool) -> Result<(), String> {
+    if !valid_id(&hub) {
+        return Err("id không hợp lệ".into());
+    }
+    remote::resolve_origin(&app, &hub, &to, accept)
+}
+
+// ------------------------------------------------------------------------------------------- hub management
+
+fn edit_registry(
+    app: &AppHandle,
+    f: impl FnOnce(&mut crate::hubs::Registry) -> Result<(), String>,
+) -> Result<(), String> {
+    {
+        let core = app.state::<Core>();
+        let mut g = core.lock();
+        if g.read_only {
+            return Err("hubs.json do bản app mới hơn ghi — bản này chỉ đọc".into());
+        }
+        f(&mut g.reg)?;
+        core.persist(&g);
+    }
+    webviews::emit_state(app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn rename_hub(app: AppHandle, id: String, name: String) -> Result<(), String> {
+    if !valid_id(&id) || name.len() > 1024 {
+        return Err("Dữ liệu không hợp lệ".into());
+    }
+    edit_registry(&app, |r| r.rename(&id, &name))
+}
+
+#[tauri::command]
+pub fn set_hub_color(app: AppHandle, id: String, color: String) -> Result<(), String> {
+    if !valid_id(&id) {
+        return Err("id không hợp lệ".into());
+    }
+    edit_registry(&app, |r| r.set_color(&id, &color))
+}
+
+#[tauri::command]
+pub async fn set_hub_hidden(app: AppHandle, id: String, hidden: bool) -> Result<(), String> {
+    if !valid_id(&id) {
+        return Err("id không hợp lệ".into());
+    }
+    let was_active = {
+        let core = app.state::<Core>();
+        let g = core.lock();
+        g.reg.active.as_deref() == Some(id.as_str())
+    };
+    edit_registry(&app, |r| r.set_hidden(&id, hidden))?;
+    if hidden && was_active {
+        if let Some(wv) = app.get_webview(&webviews::label_of(&id)) {
+            let _ = wv.hide();
+        }
+        let next = {
+            let core = app.state::<Core>();
+            let g = core.lock();
+            g.reg.active.clone()
+        };
+        match next {
+            Some(n) => webviews::select(app, n).await?,
+            None => webviews::layout(&app),
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn move_hub(app: AppHandle, id: String, delta: i32) -> Result<(), String> {
+    if !valid_id(&id) {
+        return Err("id không hợp lệ".into());
+    }
+    edit_registry(&app, |r| r.move_in_group(&id, delta).map(|_| ()))
+}
+
+/// Remove a remote hub; `wipe` also deletes its cookies/session (webview data store).
+#[tauri::command]
+pub async fn remove_hub(app: AppHandle, id: String, wipe: bool) -> Result<(), String> {
+    if !valid_id(&id) {
+        return Err("id không hợp lệ".into());
+    }
+    remote::remove_hub(&app, &id, wipe).await
+}
+
+// ------------------------------------------------------------------------------------------- switching
+
+#[tauri::command]
+pub fn set_overlay(app: AppHandle, open: bool) {
+    webviews::set_overlay(&app, open);
+}
+
+#[tauri::command]
+pub async fn select_relative(app: AppHandle, offset: i64) -> Result<(), String> {
+    webviews::select_relative(app, offset.clamp(-1, 1)).await
 }
 
 #[cfg(test)]

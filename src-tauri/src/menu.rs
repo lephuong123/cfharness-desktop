@@ -18,6 +18,17 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let find_next = MenuItem::with_id(app, "find_next", "Tìm tiếp", true, Some("CmdOrCtrl+G"))?;
     let print = MenuItem::with_id(app, "print", "In…", true, Some("CmdOrCtrl+P"))?;
     let refresh = MenuItem::with_id(app, "refresh_local", "Làm mới danh sách hub local", true, None::<&str>)?;
+    let import = MenuItem::with_id(app, "import", "Thêm hub / Import URL…", true, Some("CmdOrCtrl+Shift+N"))?;
+    let sync_all = MenuItem::with_id(app, "sync_all", "Đồng bộ lại các directory", true, None::<&str>)?;
+    let manage = MenuItem::with_id(app, "manage", "Quản lý hub…", true, None::<&str>)?;
+    let switcher = MenuItem::with_id(app, "switcher", "Chuyển nhanh tới hub…", true, Some("CmdOrCtrl+K"))?;
+    let prev = MenuItem::with_id(app, "hub_prev", "Hub trước", true, Some("CmdOrCtrl+Shift+["))?;
+    let next = MenuItem::with_id(app, "hub_next", "Hub sau", true, Some("CmdOrCtrl+Shift+]"))?;
+    let numbered: Vec<MenuItem<Wry>> = (1..=9)
+        .map(|n| {
+            MenuItem::with_id(app, format!("hub_{n}"), format!("Hub thứ {n}"), true, Some(format!("CmdOrCtrl+{n}")))
+        })
+        .collect::<tauri::Result<_>>()?;
 
     let about = PredefinedMenuItem::about(
         app,
@@ -34,7 +45,9 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         "Tệp",
         true,
         &[
+            &import,
             &refresh,
+            &sync_all,
             &PredefinedMenuItem::separator(app)?,
             &print,
             &PredefinedMenuItem::separator(app)?,
@@ -72,6 +85,16 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &PredefinedMenuItem::fullscreen(app, Some("Toàn màn hình"))?,
         ],
     )?;
+    let mut hub_items: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = vec![&switcher, &prev, &next];
+    let sep1 = PredefinedMenuItem::separator(app)?;
+    let sep2 = PredefinedMenuItem::separator(app)?;
+    hub_items.push(&sep1);
+    for item in &numbered {
+        hub_items.push(item);
+    }
+    hub_items.push(&sep2);
+    hub_items.push(&manage);
+    let hub = Submenu::with_items(app, "Hub", true, &hub_items)?;
     let window = Submenu::with_items(
         app,
         "Cửa sổ",
@@ -99,12 +122,12 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
                 &PredefinedMenuItem::quit(app, Some("Thoát Cfharness Desktop"))?,
             ],
         )?;
-        Menu::with_items(app, &[&app_menu, &file, &edit, &view, &window])
+        Menu::with_items(app, &[&app_menu, &file, &edit, &view, &hub, &window])
     }
     #[cfg(not(target_os = "macos"))]
     {
         let help = Submenu::with_items(app, "Trợ giúp", true, &[&about])?;
-        Menu::with_items(app, &[&file, &edit, &view, &window, &help])
+        Menu::with_items(app, &[&file, &edit, &view, &hub, &window, &help])
     }
 }
 
@@ -116,6 +139,12 @@ pub fn next_zoom(cur: f64, action: &str) -> f64 {
         _ => 1.0,
     };
     (z.clamp(ZOOM_MIN, ZOOM_MAX) * 10.0).round() / 10.0
+}
+
+/// `hub_3` → 3 (only 1…9).
+pub fn hub_number(id: &str) -> Option<usize> {
+    let n: usize = id.strip_prefix("hub_")?.parse().ok()?;
+    (1..=9).contains(&n).then_some(n)
 }
 
 pub fn handle(app: &AppHandle, event: MenuEvent) {
@@ -163,7 +192,33 @@ fn dispatch(app: &AppHandle, id: &str) {
             );
         }
         "refresh_local" => crate::commands::refresh_local_inner(app),
-        _ => {}
+        "hub_prev" | "hub_next" => {
+            let a = app.clone();
+            let off = if id == "hub_prev" { -1 } else { 1 };
+            tauri::async_runtime::spawn(async move {
+                let _ = webviews::select_relative(a, off).await;
+            });
+        }
+        "switcher" | "import" | "manage" => {
+            // The shell opens the dialog (and asks to cover the hub webview via `set_overlay`).
+            if let Some(shell) = app.get_webview(webviews::SHELL_LABEL) {
+                let _ = shell.set_focus();
+            }
+            let _ =
+                tauri::Emitter::emit_to(app, tauri::EventTarget::webview(webviews::SHELL_LABEL), "shell://open", id);
+        }
+        "sync_all" => {
+            let a = app.clone();
+            tauri::async_runtime::spawn(async move { crate::remote::sync_all(&a).await });
+        }
+        other => {
+            if let Some(n) = hub_number(other) {
+                let a = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = webviews::select_index(a, n).await;
+                });
+            }
+        }
     }
 }
 
@@ -178,5 +233,14 @@ mod tests {
         assert_eq!(next_zoom(1.7, "zoom_reset"), 1.0);
         assert_eq!(next_zoom(3.0, "zoom_in"), 3.0);
         assert_eq!(next_zoom(0.5, "zoom_out"), 0.5);
+    }
+
+    #[test]
+    fn hub_numbers() {
+        assert_eq!(hub_number("hub_1"), Some(1));
+        assert_eq!(hub_number("hub_9"), Some(9));
+        assert_eq!(hub_number("hub_0"), None);
+        assert_eq!(hub_number("hub_10"), None);
+        assert_eq!(hub_number("hub_prev"), None);
     }
 }

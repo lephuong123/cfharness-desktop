@@ -9,6 +9,18 @@ fn main() {
         "create_default_hub",
         "find_in_page",
         "find_close",
+        "inspect_url",
+        "confirm_import",
+        "sync_directory",
+        "remove_directory",
+        "resolve_origin_change",
+        "rename_hub",
+        "set_hub_color",
+        "set_hub_hidden",
+        "move_hub",
+        "remove_hub",
+        "set_overlay",
+        "select_relative",
     ])))
     .expect("failed to run tauri-build");
 }

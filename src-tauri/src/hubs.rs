@@ -49,8 +49,44 @@ pub struct Hub {
     pub hub_id: Option<String>,
     #[serde(default)]
     pub stale: bool,
+    /// Name last published by the directory (remote hubs): the display `name` follows it until the user renames.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dir_name: Option<String>,
+    /// OS user owning the hub on the cloud machine (from the directory, display only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    /// An origin change proposed by the directory that the user refused: not asked again for this value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rejected_origin: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+}
+
+impl Hub {
+    /// A remote hub with defaults filled in (color from id, name from origin when empty).
+    pub fn new_remote(id: &str, name: &str, origin: &str) -> Hub {
+        let mut h = Hub {
+            id: id.to_string(),
+            kind: HubKind::Remote,
+            name: name.to_string(),
+            home: None,
+            origin: Some(origin.to_string()),
+            color: color_for(id).to_string(),
+            last_url: None,
+            hidden: false,
+            directory: None,
+            hub_id: None,
+            stale: false,
+            dir_name: None,
+            user: None,
+            rejected_origin: None,
+            extra: Map::new(),
+        };
+        if h.name.trim().is_empty() {
+            h.name = default_name(&h);
+        }
+        h
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -66,6 +102,9 @@ pub struct Directory {
     pub etag: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub synced_at: Option<String>,
+    /// Directory hub ids (`hubs[].id` of the directory) the user removed: a resync does not add them back.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dismissed: Vec<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -221,7 +260,7 @@ pub fn normalize(reg: &mut Registry) {
     }
 }
 
-fn is_hex_color(s: &str) -> bool {
+pub fn is_hex_color(s: &str) -> bool {
     s.len() == 7 && s.starts_with('#') && s[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
@@ -275,6 +314,110 @@ impl Registry {
         self.hubs.iter_mut().find(|h| h.id == id)
     }
 
+    pub fn directory(&self, id: &str) -> Option<&Directory> {
+        self.directories.iter().find(|d| d.id == id)
+    }
+    pub fn directory_mut(&mut self, id: &str) -> Option<&mut Directory> {
+        self.directories.iter_mut().find(|d| d.id == id)
+    }
+
+    /// Group key used by the rail: the directory id when that directory still exists, else none.
+    pub fn group_of(&self, h: &Hub) -> Option<String> {
+        h.directory.as_ref().filter(|d| self.directory(d).is_some()).cloned()
+    }
+
+    /// Rail order: hubs without a directory first (registry order), then each directory in `directories` order.
+    /// `include_hidden=false` gives the visible order used for Cmd/Ctrl+1…9 and previous/next.
+    pub fn rail_order(&self, include_hidden: bool) -> Vec<String> {
+        let keep = |h: &&Hub| include_hidden || !h.hidden;
+        let mut out: Vec<String> =
+            self.hubs.iter().filter(keep).filter(|h| self.group_of(h).is_none()).map(|h| h.id.clone()).collect();
+        for d in &self.directories {
+            out.extend(
+                self.hubs.iter().filter(keep).filter(|h| h.directory.as_deref() == Some(&d.id)).map(|h| h.id.clone()),
+            );
+        }
+        out
+    }
+
+    /// Hub `offset` steps away from `from` in the visible rail order (wraps around).
+    pub fn neighbour(&self, from: Option<&str>, offset: i64) -> Option<String> {
+        let order = self.rail_order(false);
+        if order.is_empty() {
+            return None;
+        }
+        let n = order.len() as i64;
+        let idx = from.and_then(|f| order.iter().position(|x| x == f)).map(|i| i as i64).unwrap_or(if offset > 0 {
+            -1
+        } else {
+            0
+        });
+        Some(order[(idx + offset).rem_euclid(n) as usize].clone())
+    }
+
+    /// Rename (one line, ≤ 60 chars, control/bidi characters removed). Empty → back to the default name.
+    pub fn rename(&mut self, id: &str, name: &str) -> Result<(), String> {
+        let clean = crate::directory::clean_line(name, crate::directory::NAME_MAX);
+        let h = self.get_mut(id).ok_or("Không tìm thấy hub")?;
+        h.name = if clean.is_empty() { h.dir_name.clone().unwrap_or_else(|| default_name(h)) } else { clean };
+        Ok(())
+    }
+
+    pub fn set_color(&mut self, id: &str, color: &str) -> Result<(), String> {
+        if !is_hex_color(color) {
+            return Err("Màu không hợp lệ".into());
+        }
+        self.get_mut(id).ok_or("Không tìm thấy hub")?.color = color.to_ascii_lowercase();
+        Ok(())
+    }
+
+    /// Hide/show. Hiding the active hub moves the selection to the next visible hub.
+    pub fn set_hidden(&mut self, id: &str, hidden: bool) -> Result<(), String> {
+        self.get_mut(id).ok_or("Không tìm thấy hub")?.hidden = hidden;
+        if hidden && self.active.as_deref() == Some(id) {
+            self.active = self.rail_order(false).into_iter().next();
+        }
+        Ok(())
+    }
+
+    /// Remove a REMOTE hub (local hubs are rediscovered automatically — they can only be hidden). A hub that came
+    /// from a directory is remembered in `dismissed` so a resync does not bring it back.
+    pub fn remove(&mut self, id: &str) -> Result<Hub, String> {
+        let pos = self.hubs.iter().position(|h| h.id == id).ok_or("Không tìm thấy hub")?;
+        if self.hubs[pos].kind == HubKind::Local {
+            return Err("Hub local được phát hiện tự động — chỉ ẩn được, không xoá được".into());
+        }
+        let h = self.hubs.remove(pos);
+        if let (Some(dir), Some(hid)) = (h.directory.clone(), h.hub_id.clone()) {
+            if let Some(d) = self.directory_mut(&dir) {
+                if !d.dismissed.contains(&hid) {
+                    d.dismissed.push(hid);
+                }
+            }
+        }
+        if self.active.as_deref() == Some(id) {
+            self.active = self.rail_order(false).into_iter().next();
+        }
+        Ok(h)
+    }
+
+    /// Move a hub one step up (`delta < 0`) or down within its rail group (swap with the neighbour of the same group).
+    /// Returns false when it is already at the edge.
+    pub fn move_in_group(&mut self, id: &str, delta: i32) -> Result<bool, String> {
+        let h = self.get(id).ok_or("Không tìm thấy hub")?;
+        let group = self.group_of(h);
+        let same: Vec<usize> = (0..self.hubs.len()).filter(|&i| self.group_of(&self.hubs[i]) == group).collect();
+        let me = same.iter().position(|&i| self.hubs[i].id == id).ok_or("Không tìm thấy hub")?;
+        let other = if delta < 0 { me.checked_sub(1) } else { Some(me + 1).filter(|&j| j < same.len()) };
+        match other {
+            Some(j) => {
+                self.hubs.swap(same[me], same[j]);
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
     /// Merge discovered local homes: add new ones, keep user customisations of existing ones.
     /// Returns true if something changed.
     pub fn merge_local(&mut self, homes: &[PathBuf]) -> bool {
@@ -297,6 +440,9 @@ impl Registry {
                 directory: None,
                 hub_id: None,
                 stale: false,
+                dir_name: None,
+                user: None,
+                rejected_origin: None,
                 extra: Map::new(),
             };
             hub.color = color_for(&id).to_string();
@@ -520,5 +666,103 @@ mod tests {
         assert_ne!(data_store_id("loc-1"), data_store_id("loc-2"));
         assert_eq!(data_store_id("loc-1"), data_store_id("loc-1"));
         assert_eq!(local_display_name("/Users/x/hub-thu-2"), "Local (hub-thu-2)");
+    }
+
+    fn mixed() -> Registry {
+        let mut reg = Registry::default();
+        reg.merge_local(&[PathBuf::from("/Users/x/.cfharness"), PathBuf::from("/Users/x/hub2")]);
+        reg.directories.push(Directory {
+            id: "dir-1".into(),
+            name: "D".into(),
+            url: "https://admin.example.com/d".into(),
+            token_ref: None,
+            etag: None,
+            synced_at: None,
+            dismissed: vec![],
+            extra: Map::new(),
+        });
+        let mut a = Hub::new_remote("rem-1-a", "A", "https://a.example.com");
+        a.directory = Some("dir-1".into());
+        a.hub_id = Some("a".into());
+        let mut b = Hub::new_remote("rem-1-b", "B", "https://b.example.com");
+        b.directory = Some("dir-1".into());
+        b.hub_id = Some("b".into());
+        // interleaved on purpose: the rail still groups them
+        reg.hubs.insert(1, a);
+        reg.hubs.push(b);
+        reg.hubs.push(Hub::new_remote("rem-solo", "", "https://solo.example.com"));
+        reg
+    }
+
+    #[test]
+    fn rail_groups_and_neighbours() {
+        let reg = mixed();
+        let l1 = local_id("/Users/x/.cfharness");
+        let l2 = local_id("/Users/x/hub2");
+        assert_eq!(
+            reg.rail_order(false),
+            vec![l1.clone(), l2.clone(), "rem-solo".into(), "rem-1-a".into(), "rem-1-b".into()]
+        );
+        assert_eq!(reg.get("rem-solo").unwrap().name, "solo.example.com");
+        assert_eq!(reg.neighbour(Some(&l1), 1).as_deref(), Some(l2.as_str()));
+        assert_eq!(reg.neighbour(Some(&l1), -1).as_deref(), Some("rem-1-b")); // wraps
+        assert_eq!(reg.neighbour(Some("rem-1-b"), 1).as_deref(), Some(l1.as_str()));
+        assert_eq!(reg.neighbour(None, 1).as_deref(), Some(l1.as_str()));
+        // a directory that no longer exists → its hubs are shown ungrouped
+        let mut r2 = reg.clone();
+        r2.directories.clear();
+        assert_eq!(r2.group_of(r2.get("rem-1-a").unwrap()), None);
+    }
+
+    #[test]
+    fn rename_color_hide() {
+        let mut reg = mixed();
+        reg.rename("rem-solo", "  Hub\n của\u{202E} tôi  ").unwrap();
+        assert_eq!(reg.get("rem-solo").unwrap().name, "Hub của tôi");
+        reg.rename("rem-solo", "").unwrap();
+        assert_eq!(reg.get("rem-solo").unwrap().name, "solo.example.com");
+        assert!(reg.rename("nope", "x").is_err());
+        reg.set_color("rem-solo", "#ABCDEF").unwrap();
+        assert_eq!(reg.get("rem-solo").unwrap().color, "#abcdef");
+        assert!(reg.set_color("rem-solo", "red").is_err());
+        assert!(reg.set_color("rem-solo", "#12345").is_err());
+        let l1 = local_id("/Users/x/.cfharness");
+        assert_eq!(reg.active.as_deref(), Some(l1.as_str()));
+        reg.set_hidden(&l1, true).unwrap();
+        assert_ne!(reg.active.as_deref(), Some(l1.as_str()));
+        assert!(!reg.rail_order(false).contains(&l1));
+        assert!(reg.rail_order(true).contains(&l1));
+        reg.set_hidden(&l1, false).unwrap();
+        assert!(reg.rail_order(false).contains(&l1));
+    }
+
+    #[test]
+    fn remove_rules() {
+        let mut reg = mixed();
+        let l1 = local_id("/Users/x/.cfharness");
+        assert!(reg.remove(&l1).is_err()); // local hubs can only be hidden
+        reg.remove("rem-1-a").unwrap();
+        assert_eq!(reg.directory("dir-1").unwrap().dismissed, vec!["a".to_string()]);
+        reg.remove("rem-solo").unwrap();
+        assert!(reg.get("rem-solo").is_none());
+        assert!(reg.remove("rem-solo").is_err());
+    }
+
+    #[test]
+    fn move_within_group_only() {
+        let mut reg = mixed();
+        let l1 = local_id("/Users/x/.cfharness");
+        let l2 = local_id("/Users/x/hub2");
+        assert!(!reg.move_in_group(&l1, -1).unwrap()); // already first
+        assert!(reg.move_in_group(&l1, 1).unwrap());
+        assert_eq!(reg.rail_order(false)[..3], [l2.clone(), l1.clone(), "rem-solo".to_string()]);
+        assert!(reg.move_in_group("rem-1-b", -1).unwrap());
+        assert_eq!(reg.rail_order(false)[3..], ["rem-1-b".to_string(), "rem-1-a".to_string()]);
+        assert!(!reg.move_in_group("rem-1-b", -1).unwrap()); // first of its group even if not first overall
+                                                             // round trip through save/load keeps the order
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("hubs.json");
+        save(&p, &reg).unwrap();
+        assert_eq!(load(&p).registry.rail_order(true), reg.rail_order(true));
     }
 }

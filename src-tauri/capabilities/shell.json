@@ -12,6 +12,18 @@
     "allow-refresh-local",
     "allow-create-default-hub",
     "allow-find-in-page",
-    "allow-find-close"
+    "allow-find-close",
+    "allow-inspect-url",
+    "allow-confirm-import",
+    "allow-sync-directory",
+    "allow-remove-directory",
+    "allow-resolve-origin-change",
+    "allow-rename-hub",
+    "allow-set-hub-color",
+    "allow-set-hub-hidden",
+    "allow-move-hub",
+    "allow-remove-hub",
+    "allow-set-overlay",
+    "allow-select-relative"
   ]
 }
