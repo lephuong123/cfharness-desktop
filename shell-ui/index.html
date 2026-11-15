@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cfharness Desktop</title>
+    <link rel="stylesheet" href="./src/style.css" />
+    <script type="module" src="./src/main.ts"></script>
+  </head>
+  <body>
+    <nav id="rail" aria-label="Danh sách hub">
+      <ul id="hubs" role="list"></ul>
+      <div class="rail-bottom">
+        <button id="add" class="tile add" type="button" title="Thêm hub" aria-haspopup="menu" aria-expanded="false">+</button>
+      </div>
+    </nav>
+    <div id="add-menu" class="menu" role="menu" hidden>
+      <button type="button" role="menuitem" data-act="refresh">Làm mới danh sách hub local</button>
+      <button type="button" role="menuitem" disabled>Thêm hub local theo đường dẫn… <span class="soon">sắp có</span></button>
+      <button type="button" role="menuitem" disabled>Thêm hub cloud theo URL… <span class="soon">sắp có</span></button>
+      <button type="button" role="menuitem" disabled>Import danh mục hub (directory)… <span class="soon">sắp có</span></button>
+    </div>
+    <form id="find" class="findbar" hidden>
+      <input id="find-q" type="search" placeholder="Tìm trong trang" aria-label="Tìm trong trang" autocomplete="off" maxlength="500" />
+      <button type="button" id="find-prev" title="Kết quả trước (Shift+Enter)">↑</button>
+      <button type="submit" id="find-next" title="Kết quả tiếp (Enter)">↓</button>
+      <button type="button" id="find-close" title="Đóng (Esc)">✕</button>
+    </form>
+    <main id="content" aria-live="polite"></main>
+  </body>
+</html>
