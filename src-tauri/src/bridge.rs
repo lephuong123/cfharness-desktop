@@ -10,6 +10,9 @@
 //! Extra rules beyond the payload shape:
 //! - `speech_start`, `clipboard_write`, `download_save` only for the ACTIVE hub while the main window is focused
 //!   (a background hub cannot open the microphone or touch the clipboard);
+//! - `clipboard_write` is also rate limited per hub (`ClipboardLimiter`, one write per `CLIPBOARD_MIN_GAP`): the
+//!   bridge cannot see the browser's user activation, so a hostile page can at most replace the clipboard rarely,
+//!   and only while the person is looking at it;
 //! - `download_save` always goes through the native Save dialog (the user picks the file);
 //! - `badge_update` only carries ints/bools/version; notification text is fixed (`notify.rs`).
 
@@ -21,6 +24,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tauri::ipc::CapabilityBuilder;
 use tauri::{AppHandle, Manager, Webview};
 use url::Url;
@@ -30,6 +34,8 @@ pub const HUB_COMMANDS: [&str; 6] =
     ["badge_update", "speech_start", "speech_stop", "speech_available", "clipboard_write", "download_save"];
 
 pub const CLIPBOARD_MAX: usize = 1024 * 1024;
+/// Minimum time between two `clipboard_write` calls of the same hub.
+pub const CLIPBOARD_MIN_GAP: Duration = Duration::from_secs(2);
 /// base64 text of a `download_save` payload (≈ 48 MB of file data).
 pub const DOWNLOAD_B64_MAX: usize = 64 * 1024 * 1024;
 pub const COUNT_MAX: i64 = 1_000_000;
@@ -197,6 +203,27 @@ pub fn poll_interval(setting: u64) -> u64 {
     setting.clamp(BADGE_POLL_MIN_S, BADGE_POLL_MAX_S)
 }
 
+/// Per-hub rate limit for `clipboard_write` (pure; `now` passed in for tests).
+#[derive(Debug, Default)]
+pub struct ClipboardLimiter {
+    last: HashMap<String, Instant>,
+}
+
+impl ClipboardLimiter {
+    /// True (and the write is recorded) when hub `id` has not written within `CLIPBOARD_MIN_GAP`.
+    pub fn allow(&mut self, id: &str, now: Instant) -> bool {
+        match self.last.get(id) {
+            Some(t) if now.saturating_duration_since(*t) < CLIPBOARD_MIN_GAP => false,
+            _ => {
+                self.last.insert(id.to_string(), now);
+                true
+            }
+        }
+    }
+}
+
+static CLIPBOARD_LIMIT: Mutex<Option<ClipboardLimiter>> = Mutex::new(None);
+
 // ------------------------------------------------------------------------------------------------ inject script
 
 const INJECT_JS: &str = include_str!("../../inject/hub.js");
@@ -301,8 +328,15 @@ pub async fn speech_stop(app: AppHandle, webview: Webview) -> Result<(), String>
 
 #[tauri::command]
 pub fn clipboard_write(app: AppHandle, webview: Webview, text: Value) -> Result<(), String> {
-    caller_active(&app, &webview)?;
+    let id = caller_active(&app, &webview)?;
     let t = validate_clipboard(&text).map_err(|e| e.message())?;
+    {
+        let mut g = CLIPBOARD_LIMIT.lock().unwrap_or_else(|p| p.into_inner());
+        if !g.get_or_insert_with(ClipboardLimiter::default).allow(&id, Instant::now()) {
+            log::warn!("cầu nối: hub {id} ghi clipboard quá dày, bỏ qua");
+            return Err("ghi clipboard quá dày, thử lại sau".into());
+        }
+    }
     let mut cb = arboard::Clipboard::new().map_err(|e| format!("không mở được clipboard: {e}"))?;
     cb.set_text(t).map_err(|e| format!("không ghi được clipboard: {e}"))
 }
@@ -396,6 +430,20 @@ mod tests {
         assert!(validate_clipboard(&json!("a".repeat(CLIPBOARD_MAX + 1))).is_err());
         assert!(validate_clipboard(&json!(5)).is_err());
         assert!(validate_clipboard(&json!({"text":"x"})).is_err());
+    }
+
+    #[test]
+    fn clipboard_rate_limited_per_hub() {
+        let mut l = ClipboardLimiter::default();
+        let t0 = Instant::now();
+        assert!(l.allow("a", t0));
+        assert!(!l.allow("a", t0 + Duration::from_millis(500)), "second write too soon");
+        assert!(l.allow("b", t0 + Duration::from_millis(500)), "other hub has its own budget");
+        assert!(!l.allow("a", t0 + CLIPBOARD_MIN_GAP - Duration::from_millis(1)));
+        assert!(l.allow("a", t0 + CLIPBOARD_MIN_GAP));
+        // a refused call does not push the window forward
+        assert!(!l.allow("a", t0 + CLIPBOARD_MIN_GAP + Duration::from_millis(1)));
+        assert!(l.allow("a", t0 + CLIPBOARD_MIN_GAP * 2));
     }
 
     #[test]
