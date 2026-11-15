@@ -75,6 +75,23 @@ interface Settings {
   badge_poll_s: number;
 }
 
+interface UpdateInfo {
+  configured: boolean;
+  reason: string | null;
+  repo: string | null;
+  channel: "stable" | "beta";
+  auto_check: boolean;
+  current: string;
+  checking: boolean;
+  available: { version: string; date: number | null; notes: string } | null;
+  downloading: boolean;
+  downloaded: number;
+  total: number | null;
+  ready: boolean;
+  error: string | null;
+  last_checked: number | null;
+}
+
 interface InstallStep {
   id: string;
   label: string;
@@ -143,6 +160,7 @@ const IS_MAC = navigator.userAgent.includes("Mac");
 const MOD = IS_MAC ? "⌘" : "Ctrl+";
 
 let state: ShellState | null = null;
+let update: UpdateInfo | null = null;
 
 // ------------------------------------------------------------------------------------------------ helpers
 
@@ -996,8 +1014,8 @@ function settingsDialog(): void {
           ? "Giọng nói: app có nhận dạng giọng nói native cho nút micro của hub (lần đầu hệ điều hành sẽ hỏi quyền micro + nhận dạng giọng nói)."
           : "Giọng nói: bản app này chưa có nhận dạng giọng nói native — nút micro của hub được ẩn.",
       }),
-      el("p", { className: "small muted", textContent: `Phiên bản app: ${state?.version ?? ""}` }),
     );
+    body.append(updateSection());
     if (err) body.append(el("p", { className: "error-msg", textContent: err }));
     const save = button(busy ? "Đang lưu…" : "Lưu", async () => {
       busy = true;
@@ -1018,6 +1036,98 @@ function settingsDialog(): void {
     body.append(el("div", { className: "actions" }, save, button("Huỷ", () => closeModal())));
     return body;
   });
+}
+
+// ------------------------------------------------------------------------------------------------ app self-update (P4)
+
+function fmtBytes(n: number): string {
+  return n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`;
+}
+
+function renderUpdateButton(): void {
+  const b = $("update-btn") as HTMLButtonElement;
+  const v = update?.available?.version;
+  b.hidden = !v;
+  const label = v ? `Có bản cập nhật Cfharness Desktop ${v}` : "";
+  b.title = label;
+  b.setAttribute("aria-label", label);
+}
+
+function onUpdate(u: UpdateInfo): void {
+  update = u;
+  renderUpdateButton();
+  if (modalKind === "settings") drawModal();
+}
+
+async function checkUpdate(): Promise<void> {
+  try {
+    onUpdate(await invoke<UpdateInfo>("update_check"));
+  } catch (e) {
+    if (update) onUpdate({ ...update, checking: false, error: errText(e) });
+  }
+}
+
+/// "Cập nhật app" block of the Settings dialog (state comes from `shell://update`).
+function updateSection(): HTMLElement {
+  const u = update;
+  const box = el("div", { className: "stack update-box" }, el("h3", { textContent: "Cập nhật app" }));
+  if (!u) {
+    box.append(el("p", { className: "small muted", textContent: `Phiên bản app: ${state?.version ?? ""}` }));
+    return box;
+  }
+  box.append(el("p", { className: "small", textContent: `Phiên bản đang dùng: ${u.current}` + (u.repo ? ` · nguồn: github.com/${u.repo}` : "") }));
+  if (!u.configured) {
+    box.append(el("p", { className: "small muted", textContent: `Tự cập nhật tắt: ${u.reason ?? "chưa cấu hình"}. Tải bản mới ở trang Releases của repo app.` }));
+    return box;
+  }
+  const ro = !!state?.read_only;
+  const chan = el("select", { id: "upd-channel", disabled: ro });
+  for (const [v, t] of [["stable", "Ổn định (stable)"], ["beta", "Thử nghiệm (beta)"]]) chan.append(el("option", { value: v, textContent: t, selected: u.channel === v }));
+  const auto = el("input", { id: "upd-auto", type: "checkbox", checked: u.auto_check, disabled: ro });
+  const savePrefs = async () => {
+    try {
+      onUpdate(await invoke<UpdateInfo>("set_update_prefs", { channel: chan.value, autoCheck: auto.checked }));
+    } catch (e) {
+      onUpdate({ ...u, error: errText(e) });
+    }
+  };
+  chan.addEventListener("change", () => void savePrefs());
+  auto.addEventListener("change", () => void savePrefs());
+  box.append(
+    el("label", { className: "field" }, el("span", { textContent: "Kênh cập nhật" }), chan),
+    el("label", { className: "field check" }, auto, el("span", { textContent: "Tự kiểm tra mỗi ngày" }), el("span", { className: "small muted", textContent: "Chỉ báo có bản mới — không bao giờ tự cài khi bạn chưa bấm “Cập nhật”." })),
+  );
+  if (u.available) {
+    const a = u.available;
+    box.append(el("p", { className: "strong", textContent: `Có bản mới: ${a.version}` + (a.date ? ` (${fmtTime(new Date(a.date * 1000).toISOString())})` : "") }));
+    if (a.notes) box.append(el("pre", { className: "notes", textContent: a.notes }));
+    if (u.downloading) {
+      const pct = u.total ? ` / ${fmtBytes(u.total)}` : "";
+      box.append(el("p", { className: "small", textContent: `Đang tải và kiểm chữ ký… ${fmtBytes(u.downloaded)}${pct}` }));
+    } else if (u.ready) {
+      box.append(el("p", { className: "small", textContent: "Đã cài — app đang khởi động lại…" }));
+    } else {
+      box.append(
+        el("p", { className: "small muted", textContent: IS_MAC
+          ? "App sẽ khởi động lại. Bản không ký Apple: macOS có thể hỏi lại quyền micro / nhận dạng giọng nói sau khi cập nhật."
+          : "Bộ cài chạy ở chế độ hiện tiến trình, app tự mở lại khi xong." }),
+        el("div", { className: "actions" }, button(`Cập nhật lên ${a.version}`, async () => {
+          try {
+            await invoke("update_install", { version: a.version });
+          } catch (e) {
+            if (update) onUpdate({ ...update, downloading: false, error: errText(e) });
+          }
+        }, true)),
+      );
+    }
+  } else if (!u.checking && u.last_checked) {
+    box.append(el("p", { className: "small muted", textContent: `Bạn đang dùng bản mới nhất (kiểm tra lúc ${fmtTime(new Date(u.last_checked * 1000).toISOString())}).` }));
+  }
+  if (u.error) box.append(el("p", { className: "error-msg", textContent: u.error }));
+  const chk = button(u.checking ? "Đang kiểm tra…" : "Kiểm tra cập nhật", () => checkUpdate());
+  chk.disabled = u.checking || u.downloading;
+  box.append(el("div", { className: "actions" }, chk));
+  return box;
 }
 
 let asking: string | null = null;
@@ -1133,6 +1243,10 @@ function setupKeys(): void {
     else if (e.payload === "import") importDialog();
     else if (e.payload === "manage") manageDialog();
     else if (e.payload === "settings") settingsDialog();
+    else if (e.payload === "update") {
+      settingsDialog();
+      if (update?.configured) void checkUpdate();
+    }
   });
 }
 
@@ -1142,7 +1256,10 @@ async function main(): Promise<void> {
   setupKeys();
   await listen<InstallEvent>("shell://install", (e) => onInstallEvent(e.payload));
   await listen<ShellState>("shell://state", (e) => render(e.payload));
+  await listen<UpdateInfo>("shell://update", (e) => onUpdate(e.payload));
   render(await invoke<ShellState>("get_state"));
+  $("update-btn").addEventListener("click", () => settingsDialog());
+  onUpdate(await invoke<UpdateInfo>("update_status"));
 }
 
 void main();

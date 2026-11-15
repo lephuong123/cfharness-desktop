@@ -65,6 +65,15 @@
           "cfharness"
         ]
       }
+    },
+    "updater": {
+      "pubkey": "CFHARNESS_UPDATER_PUBKEY_PLACEHOLDER",
+      "endpoints": [
+        "https://github.com/OWNER/REPO/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

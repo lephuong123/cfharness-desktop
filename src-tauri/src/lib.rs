@@ -16,6 +16,7 @@ pub mod remote;
 pub mod secrets;
 pub mod speech;
 pub mod tray;
+pub mod updater;
 pub mod webviews;
 
 use crate::core::Core;
@@ -45,6 +46,7 @@ pub fn run() {
             Some(vec![AUTOSTART_ARG]),
         ))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
             commands::select_hub,
@@ -68,6 +70,10 @@ pub fn run() {
             commands::install_plan,
             commands::install_run,
             commands::set_settings,
+            commands::update_status,
+            commands::update_check,
+            commands::update_install,
+            commands::set_update_prefs,
             bridge::badge_update,
             bridge::speech_available,
             bridge::speech_start,
@@ -175,6 +181,7 @@ pub fn run() {
                 });
             }
             remote::start_background(handle.clone());
+            updater::start_background(handle.clone());
             Ok(())
         })
         .build(tauri::generate_context!())

@@ -22,6 +22,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let sync_all = MenuItem::with_id(app, "sync_all", "Đồng bộ lại các directory", true, None::<&str>)?;
     let manage = MenuItem::with_id(app, "manage", "Quản lý hub…", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Cài đặt…", true, Some("CmdOrCtrl+,"))?;
+    let check_update = MenuItem::with_id(app, "update", "Kiểm tra cập nhật…", true, None::<&str>)?;
     let switcher = MenuItem::with_id(app, "switcher", "Chuyển nhanh tới hub…", true, Some("CmdOrCtrl+K"))?;
     let prev = MenuItem::with_id(app, "hub_prev", "Hub trước", true, Some("CmdOrCtrl+Shift+["))?;
     let next = MenuItem::with_id(app, "hub_next", "Hub sau", true, Some("CmdOrCtrl+Shift+]"))?;
@@ -116,6 +117,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             true,
             &[
                 &about,
+                &check_update,
                 &PredefinedMenuItem::separator(app)?,
                 &settings,
                 &PredefinedMenuItem::separator(app)?,
@@ -131,7 +133,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let help = Submenu::with_items(app, "Trợ giúp", true, &[&about])?;
+        let help = Submenu::with_items(app, "Trợ giúp", true, &[&check_update, &about])?;
         Menu::with_items(app, &[&file, &edit, &view, &hub, &window, &help])
     }
 }
@@ -204,7 +206,7 @@ fn dispatch(app: &AppHandle, id: &str) {
                 let _ = webviews::select_relative(a, off).await;
             });
         }
-        "switcher" | "import" | "manage" | "settings" => {
+        "switcher" | "import" | "manage" | "settings" | "update" => {
             // The shell opens the dialog (and asks to cover the hub webview via `set_overlay`).
             if let Some(shell) = app.get_webview(webviews::SHELL_LABEL) {
                 let _ = shell.set_focus();

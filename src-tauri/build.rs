@@ -25,6 +25,10 @@ fn main() {
         "install_plan",
         "install_run",
         "set_settings",
+        "update_status",
+        "update_check",
+        "update_install",
+        "set_update_prefs",
         // hub bridge (never in shell.json)
         "badge_update",
         "speech_start",

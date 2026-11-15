@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Cfharness Desktop — vỏ native cho giao diện web của các hub cfharness"
 authors = ["cfharness"]
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.90"
 license = "UNLICENSED"
 publish = false
 
@@ -38,6 +38,8 @@ tokio = { version = "1", features = ["time", "sync", "macros"] }
 # Directory tokens: macOS Keychain / Windows Credential Manager.
 keyring = { version = "=3.6.3", features = ["apple-native", "windows-native"] }
 tauri-plugin-autostart = "=2.7.0"
+# Self-update (P4): ed25519-signed bundles from the app repo's GitHub Releases. native-tls like reqwest above.
+tauri-plugin-updater = { version = "=2.14.1", default-features = false, features = ["native-tls", "system-proxy", "zip"] }
 tauri-plugin-deep-link = "=2.6.3"
 tauri-plugin-single-instance = { version = "=2.5.5", features = ["deep-link"] }
 # clipboard_write bridge (G5) — Rust API only, no JS plugin permission.

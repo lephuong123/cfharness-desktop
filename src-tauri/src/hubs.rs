@@ -119,6 +119,12 @@ pub struct Settings {
     pub autostart: bool,
     #[serde(default = "default_poll")]
     pub badge_poll_s: u64,
+    /// App self-update channel: "stable" | "beta" (`updater::Channel`).
+    #[serde(default = "default_channel")]
+    pub update_channel: String,
+    /// Check for app updates once a day (never installs without the user).
+    #[serde(default = "default_true")]
+    pub auto_update_check: bool,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -132,10 +138,21 @@ fn default_true() -> bool {
 fn default_poll() -> u64 {
     10
 }
+fn default_channel() -> String {
+    "stable".into()
+}
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { live_webviews: 5, notify: true, autostart: false, badge_poll_s: 10, extra: Map::new() }
+        Settings {
+            live_webviews: 5,
+            notify: true,
+            autostart: false,
+            badge_poll_s: 10,
+            update_channel: default_channel(),
+            auto_update_check: true,
+            extra: Map::new(),
+        }
     }
 }
 

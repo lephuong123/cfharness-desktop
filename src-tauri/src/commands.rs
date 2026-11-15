@@ -368,3 +368,41 @@ mod tests {
         assert!(!s.contains("\");alert(1);//\","));
     }
 }
+
+// ------------------------------------------------------------------------------------------------ app self-update (P4)
+
+#[tauri::command]
+pub fn update_status(app: AppHandle) -> crate::updater::UpdateDto {
+    crate::updater::status(&app)
+}
+
+#[tauri::command]
+pub async fn update_check(app: AppHandle) -> Result<crate::updater::UpdateDto, String> {
+    crate::updater::check(&app).await
+}
+
+/// Download, verify (ed25519) and install `version` (must be the one the last check found), then restart.
+#[tauri::command]
+pub async fn update_install(app: AppHandle, version: String) -> Result<(), String> {
+    if version.len() > 40 || !crate::updater::valid_version(&version) {
+        return Err("phiên bản không hợp lệ".into());
+    }
+    crate::updater::install(&app, &version).await
+}
+
+#[tauri::command]
+pub fn set_update_prefs(app: AppHandle, channel: String, auto_check: bool) -> Result<crate::updater::UpdateDto, String> {
+    let ch = crate::updater::Channel::parse(&channel).ok_or("kênh cập nhật không hợp lệ (stable | beta)")?;
+    {
+        let core = app.state::<Core>();
+        let mut g = core.lock();
+        if g.read_only {
+            return Err("hubs.json do bản app mới hơn ghi — bản này chỉ đọc".into());
+        }
+        g.reg.settings.update_channel = ch.as_str().to_string();
+        g.reg.settings.auto_update_check = auto_check;
+        core.persist(&g);
+    }
+    crate::updater::emit(&app);
+    Ok(crate::updater::status(&app))
+}
