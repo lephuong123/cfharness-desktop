@@ -3,6 +3,10 @@
 //! - separate data store per hub (`data_store_identifier` on macOS 14+, `data_directory` on Windows);
 //! - navigation lock to the hub origin, other origins → system browser, new windows blocked;
 //! - downloads → native save dialog;
+//! - web permission requests (microphone, camera, geolocation, notifications, clipboard read, …) are DENIED
+//!   (`permission_decision`): without a handler WKWebView grants getUserMedia silently. Voice goes through the
+//!   native bridge (`speech_start`, active hub only);
+//! - Tauri's drag-drop handler is disabled so HTML5 drag-and-drop (file attachments in the chat) works on Windows;
 //! - LRU: at most `settings.live_webviews` alive, the rest sleep (webview closed, data store kept);
 //! - `last_url` remembered per hub (path + query only);
 //! - User-Agent suffix ` CfharnessDesktop/<ver>` (C7);
@@ -18,7 +22,9 @@ use crate::local;
 use crate::nav::{self, NavDecision, Origin};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder};
+use tauri::webview::{
+    DownloadEvent, NewWindowResponse, PageLoadEvent, PermissionKind, PermissionResponse, WebviewBuilder,
+};
 use tauri::{AppHandle, Emitter, EventTarget, LogicalPosition, LogicalSize, Manager, Rect, WebviewUrl};
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
@@ -485,6 +491,16 @@ fn on_download(app: &AppHandle, id: &str, event: DownloadEvent<'_>) -> bool {
     }
 }
 
+/// Decision for a web permission request from a hub page (PLAN §5.2 / G2). Hub pages are untrusted; the only
+/// sensitive capability they need (voice) goes through the native bridge with its active-hub check, so every
+/// privacy-relevant request is denied. Only harmless UI behaviours keep the platform default.
+pub fn permission_decision(kind: PermissionKind) -> PermissionResponse {
+    match kind {
+        PermissionKind::Autoplay | PermissionKind::PointerLock => PermissionResponse::Default,
+        _ => PermissionResponse::Deny,
+    }
+}
+
 /// Create the hub webview (hidden until laid out) and load `start`.
 fn create(app: &AppHandle, id: &str, start: Url) -> Result<(), String> {
     let window = app.get_window(MAIN_WINDOW).ok_or("Không thấy cửa sổ chính")?;
@@ -532,7 +548,17 @@ fn create(app: &AppHandle, id: &str, start: Url) -> Result<(), String> {
             }
             NewWindowResponse::Deny
         })
-        .on_download(move |_wv, ev| on_download(&a4, &i4, ev));
+        .on_download(move |_wv, ev| on_download(&a4, &i4, ev))
+        .on_permission_request(move |_wv, kind| {
+            let d = permission_decision(kind);
+            if d == PermissionResponse::Deny {
+                log::warn!("hub webview: từ chối quyền trình duyệt {kind}");
+            }
+            d
+        })
+        // Required for HTML5 drag-and-drop on Windows (Tauri otherwise replaces WebView2's drop handler); the app
+        // does not use Tauri's DragDropEvent.
+        .disable_drag_drop_handler();
 
     #[cfg(target_os = "macos")]
     {
@@ -694,5 +720,35 @@ mod platform_windows {
                 let _ = s2.SetUserAgent(&HSTRING::from(format!("{cur}{suffix}")));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hub_pages_get_no_sensitive_permission() {
+        for k in [
+            PermissionKind::Microphone,
+            PermissionKind::Camera,
+            PermissionKind::Geolocation,
+            PermissionKind::Notifications,
+            PermissionKind::ClipboardRead,
+            PermissionKind::DisplayCapture,
+            PermissionKind::Midi,
+            PermissionKind::Sensors,
+            PermissionKind::MediaKeySystemAccess,
+            PermissionKind::LocalFonts,
+            PermissionKind::WindowManagement,
+            PermissionKind::AutomaticDownloads,
+            PermissionKind::FileSystemAccess,
+            PermissionKind::Other,
+        ] {
+            assert_eq!(permission_decision(k), PermissionResponse::Deny, "{k}");
+        }
+        // never Allow: a page can never get a grant without the platform asking
+        assert_eq!(permission_decision(PermissionKind::Autoplay), PermissionResponse::Default);
+        assert_eq!(permission_decision(PermissionKind::PointerLock), PermissionResponse::Default);
     }
 }

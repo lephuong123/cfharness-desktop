@@ -268,7 +268,7 @@
       "cover": "e2e:logout"
     },
     "POST /manager/send": {
-      "cover": "structural"
+      "cover": "manual:kéo-thả tệp vào ô chat Điều phối (macOS + Windows; Windows cần disable_drag_drop_handler trên WebView hub) → tệp hiện trong danh sách đính kèm và gửi được"
     },
     "POST /manager/stop": {
       "cover": "structural"
