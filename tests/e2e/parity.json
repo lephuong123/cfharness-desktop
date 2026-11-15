@@ -1,0 +1,650 @@
+{
+  "schema": 1,
+  "_doc": "Danh sách ngang chức năng app ↔ web của hub (PLAN P5), sinh và kiểm bằng scripts/parity_routes.py. cover: e2e:<id> = ca Playwright có nhãn [id] trong tests/e2e/*.spec.ts; structural = WebView hiển thị chính trang/thao tác của hub (cùng /do/{name} + plan_action), không cần phần native; native:… = app có phần native riêng; manual:… = checklist tay.",
+  "source": "agent-hub@7e0f2b7",
+  "routes": {
+    "GET /": {
+      "cover": "e2e:pages"
+    },
+    "GET /.well-known/cfharness-directory": {
+      "cover": "e2e:directory"
+    },
+    "GET /.well-known/cfharness.json": {
+      "cover": "e2e:wellknown"
+    },
+    "GET /admin/alerts": {
+      "cover": "e2e:pages"
+    },
+    "GET /admin/audit": {
+      "cover": "e2e:pages"
+    },
+    "GET /admin/overview": {
+      "cover": "e2e:pages"
+    },
+    "GET /admin/users": {
+      "cover": "e2e:pages"
+    },
+    "GET /admin/users/{user}": {
+      "cover": "structural"
+    },
+    "GET /agents": {
+      "cover": "e2e:pages"
+    },
+    "GET /agents/new": {
+      "cover": "e2e:pages"
+    },
+    "GET /agents/{id}": {
+      "cover": "structural"
+    },
+    "GET /agents/{id}/edit": {
+      "cover": "structural"
+    },
+    "GET /app/badge": {
+      "cover": "e2e:badge"
+    },
+    "GET /approvals": {
+      "cover": "e2e:pages"
+    },
+    "GET /audit": {
+      "cover": "e2e:pages"
+    },
+    "GET /costs": {
+      "cover": "e2e:pages"
+    },
+    "GET /enroll": {
+      "cover": "manual:đăng ký TOTP (/enroll) trên hub cloud"
+    },
+    "GET /favicon.ico": {
+      "cover": "structural"
+    },
+    "GET /files/raw": {
+      "cover": "e2e:download"
+    },
+    "GET /files/view": {
+      "cover": "e2e:download"
+    },
+    "GET /inbox": {
+      "cover": "e2e:pages"
+    },
+    "GET /learnings": {
+      "cover": "e2e:pages"
+    },
+    "GET /learnings/{id}": {
+      "cover": "structural"
+    },
+    "GET /login": {
+      "cover": "e2e:login"
+    },
+    "GET /machine": {
+      "cover": "e2e:pages"
+    },
+    "GET /manager": {
+      "cover": "e2e:pages"
+    },
+    "GET /mcp": {
+      "cover": "e2e:pages"
+    },
+    "GET /mcp/agent/{id}": {
+      "cover": "structural"
+    },
+    "GET /mcp/browse": {
+      "cover": "e2e:pages"
+    },
+    "GET /mcp/browse/install": {
+      "cover": "structural"
+    },
+    "GET /mcp/oauth/callback": {
+      "cover": "manual:MCP OAuth — trang nhà cung cấp mở ở trình duyệt hệ thống, callback quay về hub (PLAN §9)"
+    },
+    "GET /mcp/{name}": {
+      "cover": "structural"
+    },
+    "GET /memory": {
+      "cover": "e2e:pages"
+    },
+    "GET /memory/graph": {
+      "cover": "e2e:pages"
+    },
+    "GET /memory/graph/entity/{id}": {
+      "cover": "structural"
+    },
+    "GET /memory/graph/fact/{id}": {
+      "cover": "structural"
+    },
+    "GET /memory/graph/view": {
+      "cover": "e2e:pages"
+    },
+    "GET /memory/{scope}/{owner}": {
+      "cover": "structural"
+    },
+    "GET /office": {
+      "cover": "e2e:office"
+    },
+    "GET /office/approval/{id}": {
+      "cover": "structural"
+    },
+    "GET /office/chat": {
+      "cover": "structural"
+    },
+    "GET /office/question/{id}": {
+      "cover": "structural"
+    },
+    "GET /office/state": {
+      "cover": "e2e:office"
+    },
+    "GET /partials/backup": {
+      "cover": "structural"
+    },
+    "GET /partials/health": {
+      "cover": "structural"
+    },
+    "GET /partials/manager": {
+      "cover": "structural"
+    },
+    "GET /partials/manager/tabs": {
+      "cover": "structural"
+    },
+    "GET /partials/memory/graph": {
+      "cover": "structural"
+    },
+    "GET /partials/overview": {
+      "cover": "structural"
+    },
+    "GET /partials/run/{id}": {
+      "cover": "structural"
+    },
+    "GET /partials/run/{id}/diff": {
+      "cover": "structural"
+    },
+    "GET /partials/run/{id}/items": {
+      "cover": "structural"
+    },
+    "GET /partials/run/{id}/result": {
+      "cover": "structural"
+    },
+    "GET /partials/slack/pending": {
+      "cover": "structural"
+    },
+    "GET /partials/task/{id}": {
+      "cover": "structural"
+    },
+    "GET /partials/tasks": {
+      "cover": "structural"
+    },
+    "GET /partials/update": {
+      "cover": "structural"
+    },
+    "GET /permissions": {
+      "cover": "e2e:pages"
+    },
+    "GET /runs": {
+      "cover": "e2e:pages"
+    },
+    "GET /runs/{id}": {
+      "cover": "structural"
+    },
+    "GET /runs/{id}/diff": {
+      "cover": "structural"
+    },
+    "GET /schedules": {
+      "cover": "e2e:pages"
+    },
+    "GET /schedules/{id}": {
+      "cover": "structural"
+    },
+    "GET /search": {
+      "cover": "e2e:pages"
+    },
+    "GET /settings": {
+      "cover": "e2e:pages"
+    },
+    "GET /skills": {
+      "cover": "e2e:pages"
+    },
+    "GET /skills/new": {
+      "cover": "e2e:pages"
+    },
+    "GET /skills/{scope}/{owner}/{name}": {
+      "cover": "structural"
+    },
+    "GET /skills/{scope}/{owner}/{name}/edit": {
+      "cover": "structural"
+    },
+    "GET /sse/firehose": {
+      "cover": "e2e:sse"
+    },
+    "GET /sse/manager": {
+      "cover": "e2e:sse"
+    },
+    "GET /sse/office": {
+      "cover": "structural"
+    },
+    "GET /sse/office/chat": {
+      "cover": "structural"
+    },
+    "GET /sse/run/{id}": {
+      "cover": "structural"
+    },
+    "GET /sse/tasks": {
+      "cover": "structural"
+    },
+    "GET /tasks": {
+      "cover": "e2e:pages"
+    },
+    "GET /tasks/{id}": {
+      "cover": "structural"
+    },
+    "GET /teams": {
+      "cover": "e2e:pages"
+    },
+    "GET /update": {
+      "cover": "e2e:pages"
+    },
+    "MOUNT /static": {
+      "cover": "e2e:pages"
+    },
+    "POST /agents/create": {
+      "cover": "structural"
+    },
+    "POST /agents/{id}/save": {
+      "cover": "structural"
+    },
+    "POST /do/mcp_connect": {
+      "cover": "manual:MCP OAuth — nút Kết nối mở trình duyệt hệ thống (khoá điều hướng của app)"
+    },
+    "POST /do/{name}": {
+      "cover": "e2e:confirm"
+    },
+    "POST /enroll": {
+      "cover": "manual:đăng ký TOTP (/enroll) trên hub cloud"
+    },
+    "POST /files/open": {
+      "cover": "structural"
+    },
+    "POST /login": {
+      "cover": "manual:đăng nhập bằng mã TOTP trên hub cloud (form /login của hub)"
+    },
+    "POST /logout": {
+      "cover": "e2e:logout"
+    },
+    "POST /manager/send": {
+      "cover": "structural"
+    },
+    "POST /manager/stop": {
+      "cover": "structural"
+    },
+    "POST /mcp/browse/install": {
+      "cover": "structural"
+    },
+    "POST /mcp/{name}/tool": {
+      "cover": "structural"
+    },
+    "POST /memory/act/{op}": {
+      "cover": "structural"
+    },
+    "POST /office/do/{name}": {
+      "cover": "structural"
+    },
+    "POST /schedules/create": {
+      "cover": "structural"
+    },
+    "POST /schedules/{id}/save": {
+      "cover": "structural"
+    },
+    "POST /skills/act/{op}": {
+      "cover": "structural"
+    }
+  },
+  "actions": {
+    "account_add_token": {
+      "cover": "structural"
+    },
+    "account_check": {
+      "cover": "structural"
+    },
+    "account_login_cancel": {
+      "cover": "structural"
+    },
+    "account_login_finish": {
+      "cover": "structural"
+    },
+    "account_login_start": {
+      "cover": "structural"
+    },
+    "account_rename": {
+      "cover": "structural"
+    },
+    "account_rm": {
+      "cover": "structural"
+    },
+    "account_use": {
+      "cover": "structural"
+    },
+    "admin_estop_off": {
+      "cover": "structural"
+    },
+    "admin_estop_on": {
+      "cover": "structural"
+    },
+    "agent_delete": {
+      "cover": "structural"
+    },
+    "agent_pause": {
+      "cover": "structural"
+    },
+    "agent_restore": {
+      "cover": "structural"
+    },
+    "agent_resume": {
+      "cover": "structural"
+    },
+    "agent_revert": {
+      "cover": "structural"
+    },
+    "approve": {
+      "cover": "e2e:confirm"
+    },
+    "approve_always": {
+      "cover": "structural"
+    },
+    "approve_fp": {
+      "cover": "structural"
+    },
+    "approve_rule": {
+      "cover": "structural"
+    },
+    "auth_reset": {
+      "cover": "structural"
+    },
+    "backup_create": {
+      "cover": "structural"
+    },
+    "config_set": {
+      "cover": "structural"
+    },
+    "conv_archive": {
+      "cover": "structural"
+    },
+    "conv_move": {
+      "cover": "structural"
+    },
+    "conv_rename": {
+      "cover": "structural"
+    },
+    "deny": {
+      "cover": "structural"
+    },
+    "device_revoke": {
+      "cover": "structural"
+    },
+    "device_revoke_all": {
+      "cover": "structural"
+    },
+    "digest_run": {
+      "cover": "structural"
+    },
+    "estop": {
+      "cover": "e2e:confirm-page"
+    },
+    "feedback": {
+      "cover": "structural"
+    },
+    "gates_set": {
+      "cover": "structural"
+    },
+    "golden_from_run": {
+      "cover": "structural"
+    },
+    "golden_restore": {
+      "cover": "structural"
+    },
+    "golden_rm": {
+      "cover": "structural"
+    },
+    "golden_suggestion_approve": {
+      "cover": "structural"
+    },
+    "golden_suggestion_reject": {
+      "cover": "structural"
+    },
+    "learn_rollback": {
+      "cover": "structural"
+    },
+    "learn_toggle": {
+      "cover": "structural"
+    },
+    "manager_set": {
+      "cover": "structural"
+    },
+    "manager_tick": {
+      "cover": "structural"
+    },
+    "manager_unset": {
+      "cover": "structural"
+    },
+    "mcp_add": {
+      "cover": "structural"
+    },
+    "mcp_disconnect": {
+      "cover": "structural"
+    },
+    "mcp_edit": {
+      "cover": "structural"
+    },
+    "mcp_import": {
+      "cover": "structural"
+    },
+    "mcp_probe": {
+      "cover": "structural"
+    },
+    "mcp_remove": {
+      "cover": "structural"
+    },
+    "mcp_restore": {
+      "cover": "structural"
+    },
+    "notify_test": {
+      "cover": "structural"
+    },
+    "perm_always_rm": {
+      "cover": "structural"
+    },
+    "perm_dev_host_rm": {
+      "cover": "structural"
+    },
+    "perm_domain_rm": {
+      "cover": "structural"
+    },
+    "perm_grant_rm": {
+      "cover": "structural"
+    },
+    "perm_localhost_off": {
+      "cover": "structural"
+    },
+    "perm_protect_add": {
+      "cover": "structural"
+    },
+    "perm_protect_rm": {
+      "cover": "structural"
+    },
+    "perm_trust_off": {
+      "cover": "structural"
+    },
+    "pin": {
+      "cover": "structural"
+    },
+    "question_answer": {
+      "cover": "structural"
+    },
+    "question_cancel": {
+      "cover": "structural"
+    },
+    "question_take": {
+      "cover": "structural"
+    },
+    "run_continue": {
+      "cover": "structural"
+    },
+    "run_resume": {
+      "cover": "structural"
+    },
+    "run_revert": {
+      "cover": "structural"
+    },
+    "run_revert_check": {
+      "cover": "structural"
+    },
+    "run_start": {
+      "cover": "structural"
+    },
+    "sandbox_localhost": {
+      "cover": "structural"
+    },
+    "schedule_pause": {
+      "cover": "structural"
+    },
+    "schedule_resume": {
+      "cover": "structural"
+    },
+    "schedule_rm": {
+      "cover": "structural"
+    },
+    "schedule_run_now": {
+      "cover": "structural"
+    },
+    "secret_rm": {
+      "cover": "structural"
+    },
+    "secret_set": {
+      "cover": "structural"
+    },
+    "slack2_allow": {
+      "cover": "structural"
+    },
+    "slack2_disable": {
+      "cover": "structural"
+    },
+    "slack2_pair": {
+      "cover": "structural"
+    },
+    "slack2_revoke": {
+      "cover": "structural"
+    },
+    "slack2_setup": {
+      "cover": "structural"
+    },
+    "slack2_test": {
+      "cover": "structural"
+    },
+    "slack_connect": {
+      "cover": "structural"
+    },
+    "steer": {
+      "cover": "structural"
+    },
+    "stop": {
+      "cover": "structural"
+    },
+    "task_archive": {
+      "cover": "structural"
+    },
+    "task_block": {
+      "cover": "structural"
+    },
+    "task_comment": {
+      "cover": "structural"
+    },
+    "task_create": {
+      "cover": "structural"
+    },
+    "task_retry": {
+      "cover": "structural"
+    },
+    "task_unblock": {
+      "cover": "structural"
+    },
+    "team_archive": {
+      "cover": "structural"
+    },
+    "team_create": {
+      "cover": "structural"
+    },
+    "team_estop": {
+      "cover": "structural"
+    },
+    "team_member": {
+      "cover": "structural"
+    },
+    "team_member_rm": {
+      "cover": "structural"
+    },
+    "team_restore": {
+      "cover": "structural"
+    },
+    "update_start": {
+      "cover": "structural"
+    },
+    "ws_close": {
+      "cover": "structural"
+    },
+    "ws_create": {
+      "cover": "structural"
+    },
+    "ws_delete": {
+      "cover": "structural"
+    },
+    "ws_edit": {
+      "cover": "structural"
+    },
+    "ws_reopen": {
+      "cover": "structural"
+    },
+    "ws_state": {
+      "cover": "structural"
+    }
+  },
+  "office_actions": {
+    "agent_delete": {
+      "cover": "structural"
+    },
+    "agent_pause": {
+      "cover": "structural"
+    },
+    "agent_resume": {
+      "cover": "structural"
+    },
+    "answer": {
+      "cover": "structural"
+    },
+    "approve": {
+      "cover": "structural"
+    },
+    "approve_always": {
+      "cover": "structural"
+    },
+    "approve_rule": {
+      "cover": "structural"
+    },
+    "deny": {
+      "cover": "structural"
+    },
+    "estop": {
+      "cover": "structural"
+    },
+    "run_continue": {
+      "cover": "structural"
+    },
+    "run_start": {
+      "cover": "structural"
+    },
+    "steer": {
+      "cover": "structural"
+    },
+    "stop": {
+      "cover": "structural"
+    },
+    "team_estop": {
+      "cover": "structural"
+    }
+  }
+}
