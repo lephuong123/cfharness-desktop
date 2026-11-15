@@ -112,6 +112,10 @@ jobs:
       - run: uv sync --project agent-hub
       - run: npm ci
       - run: npx playwright install webkit
+      # Runner macOS 15 của GitHub KHÔNG phân giải `*.localhost` (đã thấy 2026-11-15: "A server with the specified hostname could not be found")
+      # — máy dev macOS 26 thì có. Ghi hosts để chạy e2e; với app thật xem docs/spikes/P0.md (G6).
+      - name: hosts cho cfharness.localhost
+        run: echo "127.0.0.1 cfharness.localhost" | sudo tee -a /etc/hosts
       - name: E2E Playwright WebKit trên web.demo
         env:
           AGENT_HUB: ${{ github.workspace }}/agent-hub
