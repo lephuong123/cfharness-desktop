@@ -7,8 +7,8 @@
 - Đọc trước: `docs/PLAN.md` (đã duyệt; quyết định ở mục 10). Hợp đồng với hub (C1…C7) nằm trong `docs/PLAN.md` mục 6 và
   `agent-hub/docs/dev-notes/desktop-app.md`.
 - Tên: productName "Cfharness Desktop", identifier `io.cfharness.desktop`, binary `cfharness-desktop`. macOS 14+, Windows 10 21H2+.
-- Mốc hiện tại: P1 (vỏ + hub local) + P2 (hub cloud, import directory, quản lý/chuyển hub) xong. Tiếp: P3 native (badge, thông báo,
-  giọng nói), P4 đóng gói.
+- Mốc hiện tại: P1 (vỏ + hub local) + P2 (hub cloud, import directory, quản lý/chuyển hub) + P3 (cầu nối trang hub, badge,
+  thông báo, tray, deep link, giọng nói, tự cài cfharness, cài đặt/tự khởi động) xong. Tiếp: P4 đóng gói + updater ed25519.
 - Không sửa repo `agent-hub` từ đây (thay đổi phía hub = PR riêng bên đó).
 
 ## Cấu trúc
@@ -25,10 +25,17 @@
 | `src-tauri/src/remote.rs` | Glue Tauri: `inspect` → `confirm` (token vào keychain TRƯỚC khi ghi `hubs.json`), `sync_directory`, vòng nền (6 h + thăm dò), `resolve_origin`, xoá hub/directory, `wipe_store` |
 | `src-tauri/src/core.rs` | Trạng thái dùng chung (`Core`), `ShellState` gửi cho shell |
 | `src-tauri/src/commands.rs` | Lệnh IPC của shell (được khai báo trong `build.rs` → chỉ capability `shell` gọi được) |
-| `src-tauri/src/menu.rs` | Menu: zoom, tìm, tải lại, in, Sửa (copy/paste cần trên macOS) |
-| `src-tauri/capabilities/shell.json` | Capability DUY NHẤT, chỉ cho webview `shell` |
+| `src-tauri/src/menu.rs` | Menu: zoom, tìm, tải lại, in, Sửa, Cài đặt; id `tray:*` chuyển cho `tray::dispatch` (Tauri gửi mọi sự kiện menu, kể cả tray, về handler chung) |
+| `src-tauri/src/bridge.rs` | IPC cho TRANG HUB (P3): 6 lệnh `HUB_COMMANDS`, capability thêm lúc chạy cho từng WebView hub đúng origin (`grant`), kiểm payload thuần (`validate_*`), `check_caller` (label `hub-<id>` + URL đúng origin), `caller_active` (hub đang hiển thị + cửa sổ focus) cho speech/clipboard/download; `init_script` = `inject/hub.js` + origin + chu kỳ |
+| `src-tauri/src/notify.rs` | Badge (`Inner.badges`) + thông báo OS chữ cố định khi số tăng và hub không ở tiền cảnh; bấm → `webviews::open_path` (`/approvals`, `/inbox`). macOS `mac-notification-sys` (luồng riêng, chờ click), Windows WinRT toast |
+| `src-tauri/src/tray.rs` | Tray: danh sách hub (+ số chờ), hiện/ẩn, thoát; dựng lại menu chỉ khi chữ ký đổi (`refresh`, gọi từ `emit_state`) |
+| `src-tauri/src/deeplink.rs` | `parse` THUẦN `cfharness://hub/<id>/<path>` (từ chối `//`, `\`, `..`, `#`, `/login`, userinfo, cổng), `resolve` (id registry hoặc `hub_id`) |
+| `src-tauri/src/speech/` | `mod.rs` một phiên micro thuộc một hub, sự kiện → `__cfhNativeDispatch(<JSON>)`; dừng khi hub không còn tiền cảnh. `macos.rs` + `native/speech_mac.m` (ObjC, cc, SFSpeechRecognizer, kiểm khoá Info.plist trước khi xin quyền). `whisper.rs` sau feature `whisper` (cpal + whisper-rs, VAD năng lượng, mô hình pin SHA-256, tải sau khi người bấm "Tải") |
+| `src-tauri/src/installer.rs` | Tự cài: `plan` (tag mới nhất `HUB_REPO` = `updater.REPO` của hub, uv/git/claude, bước + lệnh hiển thị, nonce) → `run` (uv Astral nếu thiếu, `uv tool install --force cfharness@tag`, doctor, mở hub mặc định), log `shell://install`; không sudo, chặn root |
+| `src-tauri/capabilities/shell.json` | Capability TĨNH duy nhất, chỉ cho webview `shell` (capability của trang hub thêm lúc chạy trong `bridge.rs`) |
+| `src-tauri/native/speech_mac.m`, `Entitlements.plist` | Cầu ObjC giọng nói macOS; entitlement micro (cho hardened runtime) |
 | `src-tauri/Info.plist` | Ngoại lệ ATS chỉ cho `localhost` + subdomain (hub local là http loopback) |
-| `inject/` | Script tiêm vào WebView hub (P3) — xem `inject/README.md` |
+| `inject/hub.js` | Script khởi tạo của WebView hub: chỉ khung trên cùng + đúng origin (app nhúng), hỏi `/app/badge`, `window.cfhNative` (speech C4, clipboard, download) — xem `inject/README.md` |
 | `scripts/dev-demo.sh` | Chạy app với hub demo của agent-hub (FakeRuntime), tách khỏi dữ liệu thật |
 
 ## Lệnh
@@ -39,6 +46,7 @@ npm run tauri dev                   # chạy app
 cd src-tauri && cargo test          # test Rust — KHÔNG gọi claude, KHÔNG mạng
 cd src-tauri && cargo clippy --all-targets -- -D warnings
 cd src-tauri && cargo check --target x86_64-pc-windows-msvc   # cần llvm-rc (giả được, xem README)
+cd src-tauri && cargo clippy --features whisper --all-targets  # giọng nói Windows; cần cmake (có thể dùng cmake từ pip trong venv tạm)
 npm run tauri build -- --debug --bundles app                  # .app thử trên macOS
 ```
 Thử với hub thật mà không đụng dữ liệu thật: `scripts/dev-demo.sh` (biến `CFHARNESS_DESKTOP_DATA_DIR|HOMES|CFHARNESS` chỉ cho dev).
@@ -47,12 +55,20 @@ Thử với hub thật mà không đụng dữ liệu thật: `scripts/dev-demo.
 1. **Khoá điều hướng theo hub**: WebView của hub X chỉ tải origin X (+ `about:blank`, `blob:` của chính X). Origin khác (kể cả
    khác cổng/scheme) → huỷ + mở trình duyệt hệ thống; `javascript:`/`file:`/`data:`/userinfo → chặn. Cửa sổ mới luôn bị từ chối.
    Sửa `nav::decide` → thêm ca vào test của `nav.rs`.
-2. **IPC tối thiểu cho trang hub**: trang hub là dữ liệu không tin cậy (có chữ agent). WebView hub KHÔNG có capability nào
-   (đã kiểm thật: `get_state not allowed on … webview "hub-…"`). Lệnh app mới phải khai báo trong `build.rs` (`AppManifest`) và
-   chỉ cấp cho `shell`. Lệnh IPC mới cho trang hub (P3: `badge_update`, speech, download, clipboard) = thay đổi bảo mật → capability
-   giới hạn đúng origin đã đăng ký + kiểm kiểu payload phía Rust + test đỏ→xanh.
-3. Không bao giờ tiêm token/credential vào trang hub; script khởi tạo không đọc DOM ngoài việc gọi `/app/badge`.
-4. Thông báo OS chỉ chữ cố định + tên hub do người đặt trong app (không chữ agent).
+2. **IPC tối thiểu cho trang hub**: trang hub là dữ liệu không tin cậy (có chữ agent). WebView hub CHỈ có 6 lệnh `bridge::HUB_COMMANDS`
+   (`badge_update`, `speech_start|stop|available`, `clipboard_write` ≤ 1 MB, `download_save` qua hộp thoại Lưu) qua capability thêm
+   lúc chạy, giới hạn đúng origin đã đăng ký (`bridge::grant`; đã kiểm thật với `web.demo`: badge chạy, lệnh shell vẫn bị từ chối).
+   Mọi lệnh kiểm lại caller (`check_caller`) + payload (`validate_*`, `deny` trường lạ); micro/clipboard/lưu tệp chỉ cho hub đang hiển
+   thị + cửa sổ focus. Không dùng isolation pattern (CSP `'self'` của hub chặn iframe `isolation://`, và pattern áp cho cả app).
+   Lệnh app mới khai báo trong `build.rs` và chỉ cấp cho `shell`; thêm lệnh cho trang hub = thay đổi bảo mật → `HUB_COMMANDS` +
+   `build.rs` + kiểm payload + test đỏ→xanh (test `command_list_matches_build_rs` cấm cấp lệnh hub cho shell). Origin của hub local đổi
+   (cổng mới) → TẠO LẠI WebView (script + capability gắn với origin cũ).
+3. Không bao giờ tiêm token/credential vào trang hub; script khởi tạo không đọc DOM ngoài việc gọi `/app/badge`. Sự kiện giọng nói
+   vào trang chỉ qua `speech::event_js` (JSON, bỏ ký tự điều khiển/bidi, escape U+2028/2029).
+4. Thông báo OS chỉ chữ cố định + tên hub do người đặt trong app (không chữ agent) — `notify::message`; tray cũng chỉ tên + số.
+12. Deep link chỉ mở đường dẫn TƯƠNG ĐỐI trong hub đã có (`deeplink::parse`); không bao giờ `/login`, fragment, origin khác.
+13. Tự cài: không chạy gì trước khi người bấm "Cài" (nonce của kế hoạch), không sudo/admin, chặn khi chạy bằng root; `HUB_REPO`
+    phải bằng `updater.REPO` của agent-hub (test so khi repo nằm cạnh).
 5. Directory: chỉ https, kiểm từng mục (origin `https://host[:port]`, không IP/path; id hex ≤16; tên một dòng ≤60/≤32;
    ≤200 hub), đổi origin của hub đã có → hỏi người. Token directory trong Keychain/Credential Manager, không ghi `hubs.json`.
    Sửa luật → thêm ca vào test của `directory.rs`. Không theo redirect; không log URL có token (dùng `directory::display_url`).

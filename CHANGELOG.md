@@ -4,6 +4,22 @@ Mục mới nhất ở trên cùng. Quy trình phát hành: viết mục của p
 
 ## Chưa phát hành
 
+### Native: badge, thông báo, tray, deep link, giọng nói, tự cài cfharness (P3)
+- Badge trên thanh bên + tray: số yêu cầu duyệt + câu hỏi đang chờ bạn của từng hub (đọc `/app/badge` của hub, chu kỳ chỉnh được);
+  chấm đỏ khi hub bật ESTOP.
+- Thông báo hệ điều hành khi có yêu cầu duyệt / câu hỏi mới ở hub không ở tiền cảnh — chữ cố định + tên hub trong app; bấm vào mở
+  đúng hub ở trang Duyệt (`/approvals`) hoặc Hộp thư (`/inbox`).
+- Biểu tượng tray / thanh menu: danh sách hub, hiện/ẩn cửa sổ, thoát. Đóng cửa sổ = ẩn vào tray.
+- Deep link `cfharness://hub/<id>/<đường dẫn>` (đường dẫn tương đối, kiểm chặt); mở lần hai → về cửa sổ đang chạy.
+- Giọng nói trong app: nút micro / hội thoại giọng nói của trang Điều phối dùng nhận dạng native — macOS `SFSpeechRecognizer`
+  tiếng Việt; Windows whisper.cpp (chỉ bản build `--features whisper`, mô hình tải lần đầu sau khi bạn đồng ý).
+- Tự cài cfharness: màn chào hiện kế hoạch (tag mới nhất, lệnh, thư mục) → bấm "Cài" → cài `uv` (nếu thiếu) bằng bộ cài Astral và
+  `uv tool install cfharness@<tag>`, log trực tiếp, rồi mở hub mặc định. Không sudo. Thiếu Claude CLI → chỉ hướng dẫn.
+- Hộp **Cài đặt**: số hub giữ sống, chu kỳ badge, thông báo, mở cùng hệ điều hành (tự khởi động vào tray).
+- Nút Sao chép của hub dùng clipboard của app khi trang không ở secure context.
+- An toàn: trang hub chỉ gọi được 6 lệnh của app, chỉ từ đúng origin đã đăng ký; micro/clipboard/lưu tệp chỉ cho hub đang hiển thị
+  trong cửa sổ đang dùng; mọi dữ liệu trang gửi lên được kiểm kiểu chặt.
+
 ### Hub cloud, import URL, chuyển hub (P2)
 - Thêm hub cloud / Import URL: dán origin của một hub (`https://…`, xác nhận qua `/.well-known/cfharness.json`) hoặc URL directory
   của máy cloud (`/.well-known/cfharness-directory?t=…`) → xem trước rồi mới thêm. Chỉ https + tên miền, không IP/localhost/path,
@@ -34,5 +50,8 @@ Mục mới nhất ở trên cùng. Quy trình phát hành: viết mục của p
   Windows: bộ cài NSIS cho user hiện tại, tự tải WebView2 nếu thiếu.
 
 ### Lưu ý khi cập nhật
+- Badge/thông báo cần hub có `/app/badge` (C3); giọng nói cần `voice.js` có cầu nối `window.cfhNative` (C4) — cùng PR phía agent-hub
+  với C1. Hub cũ: app vẫn dùng được, chỉ không có badge/giọng nói.
+- macOS: lần đầu dùng micro trong app, hệ điều hành hỏi quyền Micro + Nhận dạng giọng nói.
 - Cần hub cfharness có `cfharness web --json --ensure` (hợp đồng C1, phía agent-hub). Hub cũ hơn → app báo lỗi "dữ liệu không
   hợp lệ … hãy cập nhật".
