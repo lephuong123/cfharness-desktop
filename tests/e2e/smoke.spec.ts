@@ -177,3 +177,13 @@ test("[download] tải tệp (Content-Disposition: attachment) từ trình xem f
   const { readFileSync } = await import("node:fs");
   expect(readFileSync(path, "utf8")).toBe(content);
 });
+
+test("[securectx] cfharness.localhost là secure context trong WebKit: navigator.clipboard có sẵn (G5, docs/spikes/P0.md)", async ({ page }) => {
+  await login(page);
+  const probe = await page.evaluate(() => ({
+    secure: window.isSecureContext,
+    clipboard: typeof navigator.clipboard?.writeText === "function",
+  }));
+  expect(probe.secure).toBe(true);
+  expect(probe.clipboard).toBe(true);
+});

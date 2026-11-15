@@ -167,6 +167,12 @@ Chạy app với hub demo của `agent-hub` (FakeRuntime — không gọi `claud
 AGENT_HUB=~/Workspace/agent-hub scripts/dev-demo.sh
 ```
 
+> **Chỉ đăng nhập hub demo khi chạy bản dev trên macOS.** Bản không đóng gói không có bundle id, nên WebKit lưu cookie phiên
+> của từng hub ở `~/Library/WebKit/cfharness-desktop/` và `~/Library/HTTPStorages/cfharness-desktop/` — ngoài vùng hub chặn agent
+> (C6/H5 chỉ chặn `io.cfharness.desktop`), và `CFHARNESS_DESKTOP_DATA_DIR` không đổi được chỗ này. Agent trên máy đọc được các thư mục
+> đó. Dùng hub thật thì chạy bản đã đóng gói (`npm run tauri build`). Sau khi dev: `rm -rf ~/Library/WebKit/cfharness-desktop
+> ~/Library/HTTPStorages/cfharness-desktop`.
+
 Biến môi trường chỉ dành cho phát triển: `CFHARNESS_DESKTOP_DATA_DIR` (thư mục dữ liệu app), `CFHARNESS_DESKTOP_HOMES`
 (danh sách HUB_HOME thay cho khám phá), `CFHARNESS_DESKTOP_CFHARNESS` (binary `cfharness`), `CFHARNESS_DESKTOP_TOKEN_STORE=memory` (token directory chỉ giữ trong RAM,
 không đụng Keychain).

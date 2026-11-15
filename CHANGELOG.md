@@ -4,6 +4,14 @@ Mục mới nhất ở trên cùng. Quy trình phát hành: viết mục của p
 
 ## Chưa phát hành
 
+### Sửa lỗi an toàn + tương thích
+- Trang hub không còn tự mở được micro/camera (trước đây WebView trên macOS cấp quyền im lặng, kể cả hub đang chạy nền): mọi yêu cầu
+  quyền trình duyệt của trang hub bị từ chối; giọng nói vẫn chạy qua nhận dạng native của app.
+- Windows: kéo-thả tệp vào ô chat Điều phối chạy như trên web.
+- Nút Sao chép qua app: tối đa một lần ghi clipboard mỗi 2 giây cho mỗi hub.
+- Thông báo của hub nhập từ directory hiện địa chỉ hub (host) thay cho tên do directory gửi, cho tới khi bạn tự đổi tên hub.
+- README: bản dev trên macOS chỉ nên đăng nhập hub demo (cookie lưu ngoài vùng hub bảo vệ). Kết quả spike P0: `docs/spikes/P0.md`.
+
 ### Đóng gói, tự cập nhật, phát hành (P4)
 - Tự cập nhật app: kiểm tra mỗi ngày (tắt được) hoặc bấm **Kiểm tra cập nhật…**; nút ↑ trên thanh bên khi có bản mới; ghi chú phát
   hành + nút **Cập nhật lên X.Y.Z** trong **Cài đặt → Cập nhật app**. Không bao giờ tự cài khi bạn chưa bấm.

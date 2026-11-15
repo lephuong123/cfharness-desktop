@@ -61,6 +61,9 @@ python3 -m unittest scripts/test_parity_routes.py scripts/test_release_tools.py
 ```
 Hub thêm route/ACTION mới → chạy `python3 scripts/parity_routes.py --write`, điền `cover` (ưu tiên thêm ca e2e có nhãn `[id]`).
 Thử với hub thật mà không đụng dữ liệu thật: `scripts/dev-demo.sh` (biến `CFHARNESS_DESKTOP_DATA_DIR|HOMES|CFHARNESS` chỉ cho dev).
+Bản dev macOS (không bundle id) lưu cookie hub ở `~/Library/WebKit/cfharness-desktop/` + `~/Library/HTTPStorages/cfharness-desktop/`,
+NGOÀI vùng H5 của hub → bản dev chỉ đăng nhập hub demo (README).
+Kết quả spike P0 (cái gì đã kiểm chứng, cái gì còn là giả định — nhất là mọi thứ Windows): `docs/spikes/P0.md`.
 
 ## Bất biến bảo mật (PLAN §5) — không được phá
 1. **Khoá điều hướng theo hub**: WebView của hub X chỉ tải origin X (+ `about:blank`, `blob:` của chính X). Origin khác (kể cả
@@ -70,13 +73,16 @@ Thử với hub thật mà không đụng dữ liệu thật: `scripts/dev-demo.
    (`badge_update`, `speech_start|stop|available`, `clipboard_write` ≤ 1 MB, `download_save` qua hộp thoại Lưu) qua capability thêm
    lúc chạy, giới hạn đúng origin đã đăng ký (`bridge::grant`; đã kiểm thật với `web.demo`: badge chạy, lệnh shell vẫn bị từ chối).
    Mọi lệnh kiểm lại caller (`check_caller`) + payload (`validate_*`, `deny` trường lạ); micro/clipboard/lưu tệp chỉ cho hub đang hiển
-   thị + cửa sổ focus. Không dùng isolation pattern (CSP `'self'` của hub chặn iframe `isolation://`, và pattern áp cho cả app).
+   thị + cửa sổ focus; `clipboard_write` còn giới hạn tần suất theo hub (`ClipboardLimiter`, 1 lần / 2 s — cầu nối không thấy
+   user activation). Quyền trình duyệt của trang hub (micro, camera, vị trí, thông báo, đọc clipboard…) luôn bị TỪ CHỐI
+   (`webviews::permission_decision`; không có handler thì WKWebView cấp getUserMedia im lặng). Không dùng isolation pattern (CSP `'self'` của hub chặn iframe `isolation://`, và pattern áp cho cả app).
    Lệnh app mới khai báo trong `build.rs` và chỉ cấp cho `shell`; thêm lệnh cho trang hub = thay đổi bảo mật → `HUB_COMMANDS` +
    `build.rs` + kiểm payload + test đỏ→xanh (test `command_list_matches_build_rs` cấm cấp lệnh hub cho shell). Origin của hub local đổi
    (cổng mới) → TẠO LẠI WebView (script + capability gắn với origin cũ).
 3. Không bao giờ tiêm token/credential vào trang hub; script khởi tạo không đọc DOM ngoài việc gọi `/app/badge`. Sự kiện giọng nói
    vào trang chỉ qua `speech::event_js` (JSON, bỏ ký tự điều khiển/bidi, escape U+2028/2029).
-4. Thông báo OS chỉ chữ cố định + tên hub do người đặt trong app (không chữ agent) — `notify::message`; tray cũng chỉ tên + số.
+4. Thông báo OS chỉ chữ cố định + nhãn hub do app chọn (không chữ agent) — `notify::message` + `notify::notify_name`: tên người đặt,
+   hoặc host của origin khi hub directory vẫn mang tên do directory gửi; tray cũng chỉ tên + số.
 12. Deep link chỉ mở đường dẫn TƯƠNG ĐỐI trong hub đã có (`deeplink::parse`); không bao giờ `/login`, fragment, origin khác.
 13. Tự cài: không chạy gì trước khi người bấm "Cài" (nonce của kế hoạch), không sudo/admin, chặn khi chạy bằng root; `HUB_REPO`
     phải bằng `updater.REPO` của agent-hub (test so khi repo nằm cạnh).
