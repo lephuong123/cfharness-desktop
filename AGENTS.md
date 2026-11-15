@@ -7,7 +7,8 @@
 - Đọc trước: `docs/PLAN.md` (đã duyệt; quyết định ở mục 10). Hợp đồng với hub (C1…C7) nằm trong `docs/PLAN.md` mục 6 và
   `agent-hub/docs/dev-notes/desktop-app.md`.
 - Tên: productName "Cfharness Desktop", identifier `io.cfharness.desktop`, binary `cfharness-desktop`. macOS 14+, Windows 10 21H2+.
-- Mốc hiện tại: P1 (vỏ + hub local). Tiếp: P2 hub cloud/import directory, P3 native (badge, thông báo, giọng nói), P4 đóng gói.
+- Mốc hiện tại: P1 (vỏ + hub local) + P2 (hub cloud, import directory, quản lý/chuyển hub) xong. Tiếp: P3 native (badge, thông báo,
+  giọng nói), P4 đóng gói.
 - Không sửa repo `agent-hub` từ đây (thay đổi phía hub = PR riêng bên đó).
 
 ## Cấu trúc
@@ -18,6 +19,10 @@
 | `src-tauri/src/local.rs` | Khám phá hub local (`~/.config/cfharness/hubs.json` + `~/.cfharness`, lọc thư mục tạm/thiếu `config.yaml`), tìm binary `cfharness`, chạy + parse C1 `cfharness web --json --ensure` |
 | `src-tauri/src/nav.rs` | `Origin`, khoá điều hướng `decide()` (Allow/External/Block), `is_login_page` |
 | `src-tauri/src/webviews.rs` | Một child WebView/hub cạnh rail: data store riêng, khoá điều hướng, chặn cửa sổ mới, tải tệp → hộp thoại Lưu, LRU, `last_url`, UA C7, đăng nhập lại |
+| `src-tauri/src/directory.rs` | THUẦN (không I/O): phân loại URL dán vào (`classify_input`, tách token `t=`), `validate_origin` (= `parse_public_origin` của hub), `clean_line` (bỏ điều khiển/bidi/vô hình), `parse_directory` (C5, schema 1, ≤200), `plan_sync`/`apply_sync` (thêm, gộp, stale, `origin_changes` — không bao giờ tự đổi origin), `resolve_origin_change`, giờ ISO |
+| `src-tauri/src/fetch.rs` | `Fetcher` reqwest native-tls: https only, không redirect, ≤1 MB, ETag/304, phân loại lỗi (mạng/TLS), `probe` → `Reach`; `fixture` = server HTTP cục bộ cho test |
+| `src-tauri/src/secrets.rs` | Trait `TokenStore` (`KeyringStore` thật, `MemoryStore` cho test/dev), `token_ref`/`key_of_ref` |
+| `src-tauri/src/remote.rs` | Glue Tauri: `inspect` → `confirm` (token vào keychain TRƯỚC khi ghi `hubs.json`), `sync_directory`, vòng nền (6 h + thăm dò), `resolve_origin`, xoá hub/directory, `wipe_store` |
 | `src-tauri/src/core.rs` | Trạng thái dùng chung (`Core`), `ShellState` gửi cho shell |
 | `src-tauri/src/commands.rs` | Lệnh IPC của shell (được khai báo trong `build.rs` → chỉ capability `shell` gọi được) |
 | `src-tauri/src/menu.rs` | Menu: zoom, tìm, tải lại, in, Sửa (copy/paste cần trên macOS) |
@@ -48,8 +53,12 @@ Thử với hub thật mà không đụng dữ liệu thật: `scripts/dev-demo.
    giới hạn đúng origin đã đăng ký + kiểm kiểu payload phía Rust + test đỏ→xanh.
 3. Không bao giờ tiêm token/credential vào trang hub; script khởi tạo không đọc DOM ngoài việc gọi `/app/badge`.
 4. Thông báo OS chỉ chữ cố định + tên hub do người đặt trong app (không chữ agent).
-5. Directory (P2): chỉ https, kiểm từng mục (origin `https://host[:port]`, không IP/path; id hex ≤16; tên một dòng ≤60/≤32;
+5. Directory: chỉ https, kiểm từng mục (origin `https://host[:port]`, không IP/path; id hex ≤16; tên một dòng ≤60/≤32;
    ≤200 hub), đổi origin của hub đã có → hỏi người. Token directory trong Keychain/Credential Manager, không ghi `hubs.json`.
+   Sửa luật → thêm ca vào test của `directory.rs`. Không theo redirect; không log URL có token (dùng `directory::display_url`).
+   `hubs.json` do người sửa được → origin/URL đọc từ đó luôn kiểm lại (`open_remote`, `sync_inner`).
+10. Hộp thoại/menu của shell nằm DƯỚI WebView hub → mở thì gọi `set_overlay(true)` (ẩn hub), đóng thì `false`.
+11. Phím tắt chuyển hub là accelerator của menu (Rust), không bắt trong trang hub (trang hub không có IPC).
 6. App không giữ bí mật của hub: không lưu token người, khoá ký link, bí mật TOTP. Hub local đăng nhập bằng link một lần từ C1.
    `last_url` chỉ là path+query, KHÔNG BAO GIỜ fragment (`#k=`) hay `/login?t=` (`hubs::last_url_of`). Log URL qua
    `webviews::redact_url` (không query, không fragment).

@@ -4,6 +4,18 @@ Mục mới nhất ở trên cùng. Quy trình phát hành: viết mục của p
 
 ## Chưa phát hành
 
+### Hub cloud, import URL, chuyển hub (P2)
+- Thêm hub cloud / Import URL: dán origin của một hub (`https://…`, xác nhận qua `/.well-known/cfharness.json`) hoặc URL directory
+  của máy cloud (`/.well-known/cfharness-directory?t=…`) → xem trước rồi mới thêm. Chỉ https + tên miền, không IP/localhost/path,
+  ≤ 200 hub, mục không hợp lệ bị bỏ kèm lý do; không đi theo redirect; tên hiển thị bỏ ký tự điều khiển/bidi.
+- Token directory lưu trong Keychain / Credential Manager, `hubs.json` chỉ giữ URL không token.
+- Thanh bên nhóm hub theo directory; đồng bộ lại tự động mỗi 6 giờ (ETag) và bằng tay; hub không còn trong directory hiện mờ (không
+  xoá); directory đổi địa chỉ của hub đã có → hỏi bạn trước khi đổi.
+- Quản lý hub: đổi tên, màu, ẩn/hiện, lên/xuống, xoá (hỏi có xoá dữ liệu đăng nhập không); xoá directory (kèm token, tuỳ chọn xoá hub).
+- Chuyển hub: ⌘/Ctrl+1…9, ⌘/Ctrl+K bảng chuyển nhanh, ⌘/Ctrl+Shift+[ ] hub trước/sau (menu Hub); nhớ hub + trang cuối khi mở lại.
+- Trạng thái hub cloud: trực tuyến / cần đăng nhập / lỗi TLS / mất kết nối (app kiểm trước khi mở, lỗi hiện rõ thay vì trang trắng).
+- Đăng nhập hub cloud là trang `/login` (TOTP) của chính hub trong WebView — app không lưu thông tin đăng nhập.
+
 ### Vỏ app + hub local (P1)
 - Cửa sổ "Cfharness Desktop" (Tauri v2): thanh hub bên trái (màu, chữ cái đầu, chấm trạng thái, chỗ cho badge), bên phải là
   giao diện web nguyên bản của hub đang chọn.
