@@ -167,6 +167,10 @@ jobs:
           [ "$PRERELEASE" = "true" ] && flags="--prerelease"
           gh release create "v$VERSION" --title "Cfharness Desktop v$VERSION" --notes-file dl/notes/notes.md $flags \
             rel/*.dmg rel/*.app.tar.gz rel/*.app.tar.gz.sig rel/*-setup.exe rel/*-setup.exe.sig latest.json
+          # Tên cố định cho trang tải (site/): releases/latest/download/<tên> luôn trỏ bản ổn định mới nhất.
+          cp rel/*_universal.dmg Cfharness-Desktop-macOS.dmg
+          cp rel/*_x64-setup.exe Cfharness-Desktop-Windows-setup.exe
+          gh release upload "v$VERSION" Cfharness-Desktop-macOS.dmg Cfharness-Desktop-Windows-setup.exe
           # Kênh beta = release cuộn tên "beta" (chỉ giữ latest.json). Bản ổn định cũng vào kênh beta.
           gh release view beta >/dev/null 2>&1 || gh release create beta --prerelease --title "Kênh beta (tự cập nhật)" \
             --notes "Release cuộn cho kênh beta của updater — chỉ chứa latest.json, không tải từ đây."

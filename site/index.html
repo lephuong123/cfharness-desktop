@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tải Cfharness Desktop</title>
+<meta name="description" content="Ứng dụng máy tính quản lý các hub cfharness — macOS và Windows.">
+<style>
+:root{--bg:#f7f7f5;--card:#fff;--fg:#1d1d1b;--muted:#5f5f5a;--line:#e3e2dd;--accent:#d9622b;--accent-fg:#fff;--code:#f0efea}
+@media (prefers-color-scheme:dark){:root{--bg:#161615;--card:#1f1f1d;--fg:#ecebe6;--muted:#a3a29b;--line:#33332f;--accent:#e8743d;--accent-fg:#161615;--code:#2a2a27}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+main{max-width:880px;margin:0 auto;padding:48px 16px 64px}
+h1{font-size:2rem;line-height:1.2;margin:0 0 8px}
+h2{font-size:1.25rem;margin:40px 0 12px}
+h3{font-size:1.05rem;margin:20px 0 6px}
+p.lead{color:var(--muted);margin:0 0 28px;font-size:1.1rem}
+.ver{color:var(--muted);font-size:.9rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px}
+.card.primary{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.card h2{margin:0 0 4px;font-size:1.15rem}
+.card p{margin:0 0 16px;color:var(--muted);font-size:.92rem}
+a.btn{display:inline-block;background:var(--accent);color:var(--accent-fg);text-decoration:none;font-weight:600;padding:10px 18px;border-radius:8px}
+a.btn:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
+.card:not(.primary) a.btn{background:transparent;color:var(--fg);border:1px solid var(--line)}
+ol{padding-left:22px;margin:6px 0}
+li{margin:4px 0}
+code{background:var(--code);padding:1px 6px;border-radius:4px;font-size:.88em;word-break:break-word}
+pre{background:var(--code);padding:12px;border-radius:8px;overflow-x:auto;font-size:.85rem}
+.note{border-left:3px solid var(--accent);padding:4px 0 4px 14px;color:var(--muted)}
+a{color:var(--accent)}
+footer{margin-top:48px;color:var(--muted);font-size:.85rem}
+</style>
+</head>
+<body>
+<main>
+  <h1>Cfharness Desktop</h1>
+  <p class="lead">Ứng dụng máy tính để làm việc với các hub cfharness: hub trên máy bạn có sẵn, thêm hub trên cloud bằng một URL, chuyển qua lại giữa các hub. <span class="ver" id="ver"></span></p>
+
+  <div class="grid">
+    <section class="card" id="card-mac">
+      <h2>macOS</h2>
+      <p>macOS 14 trở lên · Apple Silicon và Intel</p>
+      <a class="btn" href="https://github.com/lephuong123/cfharness-desktop/releases/latest/download/Cfharness-Desktop-macOS.dmg">Tải cho macOS (.dmg)</a>
+    </section>
+    <section class="card" id="card-win">
+      <h2>Windows</h2>
+      <p>Windows 10 (21H2) trở lên · 64-bit</p>
+      <a class="btn" href="https://github.com/lephuong123/cfharness-desktop/releases/latest/download/Cfharness-Desktop-Windows-setup.exe">Tải cho Windows (.exe)</a>
+    </section>
+  </div>
+
+  <h2>Cài đặt</h2>
+  <p class="note">App chưa có chứng chỉ ký của Apple/Microsoft, nên lần mở đầu tiên hệ điều hành sẽ cảnh báo. Làm theo các bước dưới một lần, các lần sau mở bình thường. Từ đó app tự báo khi có bản mới (bản cập nhật được ký riêng và kiểm chữ ký trước khi cài).</p>
+
+  <h3>macOS</h3>
+  <ol>
+    <li>Mở tệp <code>.dmg</code>, kéo <b>Cfharness Desktop</b> vào thư mục <b>Applications</b>.</li>
+    <li>Mở app từ Applications. macOS báo không mở được vì không xác minh được nhà phát triển → bấm <b>Xong</b> (Done).</li>
+    <li>Vào <b>Cài đặt hệ thống → Quyền riêng tư &amp; Bảo mật</b> (System Settings → Privacy &amp; Security), cuộn xuống dòng “Cfharness Desktop đã bị chặn…” → <b>Vẫn mở</b> (Open Anyway), nhập mật khẩu máy.</li>
+    <li>Mở lại app → <b>Mở</b>.</li>
+  </ol>
+  <p>Trên macOS 14 có thể làm nhanh hơn: chuột phải vào app → <b>Mở</b> → <b>Mở</b>. Hoặc dùng Terminal:</p>
+  <pre>xattr -dr com.apple.quarantine "/Applications/Cfharness Desktop.app"</pre>
+
+  <h3>Windows</h3>
+  <ol>
+    <li>Chạy tệp <code>Cfharness-Desktop-Windows-setup.exe</code>.</li>
+    <li>Nếu hiện “Windows đã bảo vệ PC của bạn” (Windows protected your PC) → bấm <b>Thông tin thêm</b> (More info) → <b>Vẫn chạy</b> (Run anyway).</li>
+    <li>Trình cài đặt cài cho riêng tài khoản của bạn, không cần quyền quản trị.</li>
+  </ol>
+
+  <h2>Lần chạy đầu</h2>
+  <ul>
+    <li>Nếu máy chưa có cfharness, app đề nghị cài giúp (cài cả <code>uv</code> nếu thiếu) — bạn xác nhận rồi chờ vài phút.</li>
+    <li>Hub trên máy hiện sẵn ở thanh bên trái. Muốn thêm hub trên cloud: bấm <b>+</b> và dán URL hub (hoặc URL danh mục hub quản trị viên gửi).</li>
+  </ul>
+
+  <footer>
+    Các bản cũ và ghi chú phát hành: <a href="https://github.com/lephuong123/cfharness-desktop/releases">GitHub Releases</a>.
+  </footer>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
