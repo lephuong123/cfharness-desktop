@@ -28,11 +28,26 @@ jobs:
           "alive: $(-not $p.HasExited) exit: $($p.ExitCode)"
           try { (Invoke-WebRequest http://127.0.0.1:9222/json -UseBasicParsing).Content } catch { "no devtools: $_" }
           Get-ChildItem -Recurse -Filter DevToolsActivePort "$env:RUNNER_TEMP\appdata","$env:LOCALAPPDATA" -ErrorAction SilentlyContinue | Select-Object FullName
-          Get-Process msedgewebview2 -ErrorAction SilentlyContinue | Select-Object Id
+          Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object { $_.CommandLine -notmatch '--type=' } | ForEach-Object { "BROWSER: " + $_.CommandLine }
           if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
           Get-Process msedgewebview2 -ErrorAction SilentlyContinue | Stop-Process -Force
           "--- stdout"; Get-Content out.txt -Tail 40
           "--- stderr"; Get-Content err.txt -Tail 60
+      - name: Chạy app với WEBVIEW2_USER_DATA_FOLDER
+        shell: pwsh
+        run: |
+          $exe = "$env:LOCALAPPDATA\Cfharness Desktop\cfharness-desktop.exe"
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9223"
+          $env:WEBVIEW2_USER_DATA_FOLDER = "$env:RUNNER_TEMP\udf"
+          $env:CFHARNESS_DESKTOP_DATA_DIR = "$env:RUNNER_TEMP\appdata2"
+          $env:CFHARNESS_DESKTOP_HOMES = "$env:RUNNER_TEMP\none"
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep 20
+          try { (Invoke-WebRequest http://127.0.0.1:9223/json/version -UseBasicParsing).Content } catch { "no devtools: $_" }
+          Get-ChildItem -Recurse -Filter DevToolsActivePort "$env:RUNNER_TEMP" -ErrorAction SilentlyContinue | Select-Object FullName
+          Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object { $_.CommandLine -notmatch '--type=' } | ForEach-Object { "BROWSER: " + $_.CommandLine }
+          Stop-Process -Id $p.Id -Force
+          Get-Process msedgewebview2 -ErrorAction SilentlyContinue | Stop-Process -Force
       - name: tauri-driver (verbose)
         shell: bash
         continue-on-error: true
