@@ -82,8 +82,8 @@ jobs:
       # E2E on the REAL app: tauri-driver exists only for Windows/Linux (no WebDriver for WKWebView on macOS).
       - name: E2E app thật (tauri-driver + msedgedriver)
         if: runner.os == 'Windows'
-        # Chưa ổn định: lần chạy đầu (2026-11-15) msedgedriver báo "DevToolsActivePort file doesn't exist" — không chặn CI tới khi sửa xong.
-        continue-on-error: true
+        # WebView2 bỏ qua WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS khi app tự truyền cờ (wry luôn truyền) → app nối biến này vào
+        # cờ của webview shell (lib.rs shell_browser_args); thiếu nó msedgedriver báo "DevToolsActivePort file doesn't exist".
         shell: bash
         run: |
           cargo install tauri-driver --locked

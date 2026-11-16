@@ -32,6 +32,19 @@ pub const AUTOSTART_ARG: &str = "--autostart";
 /// Set when the user really quits (tray/menu): the window close button only hides the window otherwise.
 static QUITTING: AtomicBool = AtomicBool::new(false);
 
+/// WebView2 ignores `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` once the app passes its own browser arguments (wry always
+/// does), which breaks tauri-driver/msedgedriver (no `--remote-debugging-port` → "DevToolsActivePort file doesn't
+/// exist"). Restore the documented behaviour for the SHELL webview only (no hub session lives there): wry's default
+/// flags + the env value. Hub webviews never get it.
+pub fn shell_browser_args(env: Option<String>) -> Option<String> {
+    let extra = env?;
+    let extra = extra.trim();
+    if extra.is_empty() {
+        return None;
+    }
+    Some(format!("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection {extra}"))
+}
+
 pub fn run() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,cfharness_desktop_lib=info"))
         .init();
@@ -126,8 +139,15 @@ pub fn run() {
                 .visible(!hidden)
                 .build()?;
             let size = window.inner_size()?.to_logical::<f64>(window.scale_factor()?);
+            #[allow(unused_mut)]
+            let mut shell = WebviewBuilder::new(webviews::SHELL_LABEL, WebviewUrl::App("index.html".into()));
+            #[cfg(windows)]
+            if let Some(args) = shell_browser_args(std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").ok()) {
+                log::warn!("webview shell: thêm cờ WebView2 từ WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS (WebDriver/e2e)");
+                shell = shell.additional_browser_args(&args);
+            }
             window.add_child(
-                WebviewBuilder::new(webviews::SHELL_LABEL, WebviewUrl::App("index.html".into())),
+                shell,
                 LogicalPosition::new(0.0, 0.0),
                 LogicalSize::new(size.width, size.height),
             )?;
@@ -199,4 +219,18 @@ pub fn run() {
                 let _ = app;
             }
         });
+}
+
+#[cfg(test)]
+mod shell_args_tests {
+    use super::shell_browser_args;
+
+    #[test]
+    fn env_args_appended_to_wry_defaults() {
+        assert_eq!(shell_browser_args(None), None);
+        assert_eq!(shell_browser_args(Some("  ".into())), None);
+        let a = shell_browser_args(Some("--remote-debugging-port=0".into())).unwrap();
+        assert!(a.starts_with("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection "));
+        assert!(a.ends_with("--remote-debugging-port=0"));
+    }
 }
