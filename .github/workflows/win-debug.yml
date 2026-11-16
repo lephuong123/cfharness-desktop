@@ -1,0 +1,46 @@
+name: win-e2e-debug
+on:
+  push:
+    branches: [ci/win-e2e-debug]
+jobs:
+  debug:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cài bản v0.1.0
+        shell: pwsh
+        run: |
+          gh release download v0.1.0 -p '*x64-setup.exe' -D dl
+          Start-Process -Wait -FilePath (Get-ChildItem dl\*.exe).FullName -ArgumentList '/S'
+          Get-ChildItem "$env:LOCALAPPDATA\Cfharness Desktop" | Select-Object Name
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Chạy app thẳng với cổng debug
+        shell: pwsh
+        run: |
+          $exe = "$env:LOCALAPPDATA\Cfharness Desktop\cfharness-desktop.exe"
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9222"
+          $env:RUST_LOG = "debug"
+          $env:CFHARNESS_DESKTOP_DATA_DIR = "$env:RUNNER_TEMP\appdata"
+          $env:CFHARNESS_DESKTOP_HOMES = "$env:RUNNER_TEMP\none"
+          $p = Start-Process -FilePath $exe -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt
+          Start-Sleep 20
+          "alive: $(-not $p.HasExited) exit: $($p.ExitCode)"
+          try { (Invoke-WebRequest http://127.0.0.1:9222/json -UseBasicParsing).Content } catch { "no devtools: $_" }
+          Get-ChildItem -Recurse -Filter DevToolsActivePort "$env:RUNNER_TEMP\appdata","$env:LOCALAPPDATA" -ErrorAction SilentlyContinue | Select-Object FullName
+          Get-Process msedgewebview2 -ErrorAction SilentlyContinue | Select-Object Id
+          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          Get-Process msedgewebview2 -ErrorAction SilentlyContinue | Stop-Process -Force
+          "--- stdout"; Get-Content out.txt -Tail 40
+          "--- stderr"; Get-Content err.txt -Tail 60
+      - name: tauri-driver (verbose)
+        shell: bash
+        continue-on-error: true
+        run: |
+          cargo install tauri-driver --locked
+          cargo install --git https://github.com/chippers/msedgedriver-tool --locked
+          msedgedriver-tool.exe
+          export PATH="$PWD:$PATH" RUST_LOG=debug
+          node tests/e2e/tauri-driver/smoke.mjs "$LOCALAPPDATA/Cfharness Desktop/cfharness-desktop.exe"
+          echo '--- app stderr not captured by driver; listing DevToolsActivePort'
+          find "$LOCALAPPDATA" "$TEMP" -name DevToolsActivePort 2>/dev/null | head
